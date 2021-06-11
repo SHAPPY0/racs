@@ -6,35 +6,53 @@ let Sidebar = {
 
 var projects = [];
 
-function projectsList() {
+function projectsList(vnode) {
 	return m.request({url: "/project/list"}).then(function(result) {
 		projects = result;
 	});
 }
 
+function projectBuild(project, event) {
+	return m.request({method: "POST", url: "/project/build", body: {id: project.id, stage: "prepare"}}).then(function(result) {
+	});
+}
+
+var interval;
+
 let Projects = {
 	oninit: projectsList,
-	view: function() {
+	oncreate: function(vnode) {
+		interval = setInterval(projectsList, 2000, vnode);
+	},
+	onremove: function(vnode) {
+		clearInterval(interval);
+	},
+	view: function(vnode) {
 		return m("div.columns", [
 			m("div.column", [m(Sidebar)]),
 			m("div.column", [
 				m("table.table", [
 					m("thead", [
 						m("tr", [
-							m("th", ["Id"]),
-							m("th", ["Name"]),
-							m("th", ["State"]),
-							m("th", ["Task"]),
-							m("th", ["Version"])
+							m("th", "Id"),
+							m("th", "Name"),
+							m("th", "State"),
+							m("th", "Task"),
+							m("th", "Version"),
+							m("th", "Actions")
 						])
 					]),
 					m("tbody", projects.map(function(project) {
-						return m("tr", [
-							m("td", [project.id.toString()]),
-							m("td", [project.name.toString()]),
-							m("td", [project.state]),
-							m("td", [(project.task || "").toString()]),
-							m("td", [project.version.toString()])
+						let task = (project.task || "").toString();
+						return m("tr", {key: project.id}, [
+							m("td", project.id.toString()),
+							m("td", project.name.toString()),
+							m("td", project.state),
+							m("td", m(m.route.Link, {href: "/task/" + task}, task)),
+							m("td", project.version.toString()),
+							m("td", [
+								m("button", {onclick: projectBuild.bind(null, project)}, "Build")
+							])
 						]);				
 					}))
 				])
@@ -43,8 +61,41 @@ let Projects = {
 	}
 }
 
-setInterval(projectsList, 2000)
+var logs = "";
+var offset = 0;
+
+function taskLogs(vnode) {
+	console.log(vnode);
+	return m.request({
+		url: "/task/logs",
+		params: {id: vnode.attrs.id, offset: offset},
+		responseType: "text",
+		deserialize: function(value) {return value;}
+	}).then(function(result) {
+		console.log(result);
+		logs += result;
+		offset = logs.length;
+	});
+}
+
+let Task = {
+	oninit: function(vnode) {
+		logs = "";
+		offset = 0;
+		taskLogs(vnode);
+	},
+	oncreate: function(vnode) {
+		interval = setInterval(taskLogs, 2000, vnode);
+	},
+	onremove: function(vnode) {
+		clearInterval(interval);
+	},
+	view: function(vnode) {
+		return m("pre", logs || "")
+	}
+}
 
 m.route(document.body, "/projects", {
-	"/projects": Projects
+	"/projects": Projects,
+	"/task/:id": Task
 })
