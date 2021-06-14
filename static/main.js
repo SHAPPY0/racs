@@ -48,7 +48,15 @@ let Projects = {
 							m("td", project.id.toString()),
 							m("td", project.name.toString()),
 							m("td", project.state),
-							m("td", m(m.route.Link, {href: "/task/" + task}, task)),
+							m("td", [
+								m("table.table", project.tasks.map(function(task) {
+									return m("tr", [
+										m("td", m(m.route.Link, {href: "/task/" + task.id}, task.id)),
+										m("td", task.type),
+										m("td", task.state)
+									])
+								}))
+							]),
 							m("td", project.version.toString()),
 							m("td", [
 								m("button", {onclick: projectBuild.bind(null, project)}, "Build")

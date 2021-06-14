@@ -28,7 +28,9 @@ DB:execute('CREATE TABLE IF NOT EXISTS projects(
 DB:execute('CREATE TABLE IF NOT EXISTS tasks(
 	id INTEGER PRIMARY KEY,
 	project INTEGER,
-	type STRING
+	type STRING,
+	state STRING,
+	time STRING
 )')
 
 DB:execute('CREATE TABLE IF NOT EXISTS members(
@@ -49,15 +51,6 @@ end
 
 let Loop := glib::MainLoop::new(nil, nil)
 
-enum: state("status", [
-	"CLONING", "CLONE_SUCCESS", "CLONE_ERROR",
-	"PREPARING", "PREPARE_SUCCESS", "PREPARE_ERROR",
-	"PULLING", "PULL_SUCCESS", "PULL_ERROR",
-	"BUILDING", "BUILD_SUCCESS", "BUILD_ERROR",
-	"PACKAGING", "PACKAGE_SUCCESS", "PACKAGE_ERROR",
-	"PUSHING", "PUSH_SUCCESS", "PUSH_ERROR"
-])
-
 def Projects := {}
 def ProjectPath := glib::canonicalize_filename("projects", nil)
 
@@ -65,57 +58,81 @@ let ProjectCreateStmt := DB:statement("INSERT INTO projects(name, source, branch
 let ProjectUpdateStateStmt := DB:statement("UPDATE projects SET state = ? WHERE id = ?")
 let ProjectUpdateVersionStmt := DB:statement("UPDATE projects SET version = ? WHERE id = ?")
 
-class: project("project", :Id, :Name, :Destination, :Tag, :State, :Version, :Next, :Task)
+class: project("project", :Id, :Name, :Destination, :Tag, :State, :Version, :Tasks, :Next,
+	state is enum("state", [
+		"CLONING", "CLONE_SUCCESS", "CLONE_ERROR",
+		"PREPARING", "PREPARE_SUCCESS", "PREPARE_ERROR",
+		"PULLING", "PULL_SUCCESS", "PULL_ERROR",
+		"BUILDING", "BUILD_SUCCESS", "BUILD_ERROR",
+		"PACKAGING", "PACKAGE_SUCCESS", "PACKAGE_ERROR",
+		"PUSHING", "PUSH_SUCCESS", "PUSH_ERROR"
+	])
+)
 
 fun project_create(Name, URL, Branch, Destination, Tag) do
 	let Id := last(ProjectCreateStmt(Name, URL, Branch, Destination, Tag))[1]
 	log::info('Project created ', Id, ' ', Name, ' ', URL, ' ', Branch)
 	glib::mkdir_with_parents('{ProjectPath}/{Id}/context', 511)
 	glib::mkdir_with_parents('{ProjectPath}/{Id}/workspace', 511)
-	let Project := Projects[Id] := project(Id, Name, Destination, Tag, state::CLONING, 0, 0)
-	Project:task(state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
+	let Project := Projects[Id] := project(Id, Name, Destination, Tag, project::state::CLONING, 0, [])
+	Project:task(project::state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
 	ret Project
 end
 
 for (Id, Name, Destination, Tag, State, Version) in DB:execute("SELECT id, name, destination, tag, state, version FROM projects") do
-	Projects[Id] := project(Id, Name, Destination, Tag, state(State), Version, 0)
-end
-
-for (Id, ProjectId) in DB:execute("SELECT id, project FROM tasks") do
-	let Project := Projects[ProjectId] or next
-	if not Project:Task > Id then
-		Project:Task := Id
-	end
+	Projects[Id] := project(Id, Name, Destination, Tag, project::state(State), Version, [])
 end
 
 def TaskPath := glib::canonicalize_filename("tasks", nil)
-let TaskCreateStmt := DB:statement("INSERT INTO tasks(project, type) VALUES(?, ?) RETURNING id")
 
-meth :task(Project: project, State: state, Command: list[string]) do
+let TaskCreateStmt := DB:statement("INSERT INTO tasks(project, type, state, time) VALUES(?, ?, 'RUNNING', datetime('now')) RETURNING id")
+let TaskUpdateStmt := DB:statement("UPDATE tasks SET state = ? WHERE id = ?")
+
+class: task("task", :Id, :Type, :State,
+	state is enum("state", ["RUNNING", "COMPLETE", "ERROR"])
+)
+
+for (ProjectId, Id, Type, State) in DB:execute("SELECT project, id, type, state FROM tasks WHERE time > datetime('now','-1 hour') ORDER BY id") do
+	let Project := Projects[ProjectId] or next
+	Project:Tasks:put(task(Id, Type, task::state(State)))
+end
+
+meth :task(Project: project, State: project::state, Command: list[string]) do
 	log::info('Task create ', Command)
 	let Id := last(TaskCreateStmt(Project:Id, string(State)))[1]
-	let TaskRoot := 'tasks/{Id}/'
-	glib::mkdir_with_parents(TaskRoot, 511)
-	let Out := glib::IOChannel::new_file('{TaskRoot}/out.log', "w")
-	let Err := glib::IOChannel::new_file('{TaskRoot}/err.log', "w")
-	log::info('Out = {Out:unix_get_fd}, Err = {Err:unix_get_fd}')
-	let (_, Pid) := glib::spawn_async_with_fds(nil, Command, [], glib::SpawnFlags::do_not_reap_child, nil, -1, Out:unix_get_fd, Out:unix_get_fd)
-	Out:shutdown(false)
-	Err:shutdown(false)
-	Project:State := State
-	Project:Task := Id
-	glib::child_watch_add(200, Pid; Pid, Status) do
-		log::info('Task complete ', Pid, ' ', Status)
-		glib::spawn_close_pid(Pid)
-		Project:State := state(old + if Status = 0 then 1 else 2 end)
+	with Task := task(Id, string(State), task::state::RUNNING) do
+		Project:Tasks:put(Task)
+		let TaskRoot := 'tasks/{Id}/'
+		glib::mkdir_with_parents(TaskRoot, 511)
+		let Out := glib::IOChannel::new_file('{TaskRoot}/out.log', "w")
+		let Err := glib::IOChannel::new_file('{TaskRoot}/err.log', "w")
+		log::info('Out = {Out:unix_get_fd}, Err = {Err:unix_get_fd}')
+		let (_, Pid) := glib::spawn_async_with_fds(nil, Command, [], glib::SpawnFlags::do_not_reap_child, nil, -1, Out:unix_get_fd, Out:unix_get_fd)
+		Out:shutdown(false)
+		Err:shutdown(false)
+		Project:State := State
+		glib::child_watch_add(200, Pid; Pid, Status) do
+			log::info('Task complete ', Pid, ' ', Status)
+			glib::spawn_close_pid(Pid)
+			if Status = 0 then
+				Project:State := project::state(old + 1)
+				Task:State := task::state::COMPLETE
+			else
+				Project:State := project::state(old + 2)
+				Task:State := task::state::ERROR
+			end
+			last(ProjectUpdateStateStmt(string(Project:State), Project:Id))
+			last(TaskUpdateStmt(string(Task:State), Task:Id))
+			replace(Project:Next, 0)(Project)
+		end
+	on Error do
+		log::error(Error)
+		Project:State := project::state(old + 2)
 		last(ProjectUpdateStateStmt(string(Project:State), Project:Id))
+		Task:State := task::state::ERROR
+		last(TaskUpdateStmt(string(Task:State), Task:Id))
 		replace(Project:Next, 0)(Project)
 	end
-on Error do
-	log::error(Error)
-	Project:State := state(old + 2)
-	last(ProjectUpdateStateStmt(string(Project:State), Project:Id))
-	replace(Project:Next, 0)(Project)
 end
 
 meth :build(Project: project) do
@@ -124,35 +141,35 @@ meth :build(Project: project) do
 		ret Project:Next := :build
 	end
 	when Project:State
-	is state::CLONE_SUCCESS do
+	is project::state::CLONE_SUCCESS do
 		Project:Next := :build
-		Project:task(state::PREPARING, ["/usr/bin/podman", "build", "--squash", "-f", '{ProjectPath}/{Project:Id}/BuildSpec', "-t", 'builder-{Project:Id}', '{ProjectPath}/{Project:Id}/context'])
+		Project:task(project::state::PREPARING, ["/usr/bin/podman", "build", "--squash", "-f", '{ProjectPath}/{Project:Id}/BuildSpec', "-t", 'builder-{Project:Id}', '{ProjectPath}/{Project:Id}/context'])
 		ret
-	is state::PREPARE_SUCCESS do
+	is project::state::PREPARE_SUCCESS do
 		Project:Next := :build
-		Project:task(state::PULLING, ["/usr/bin/git", "-C", '{ProjectPath}/{Project:Id}/workspace/source', "pull", "--recurse-submodules"])
+		Project:task(project::state::PULLING, ["/usr/bin/git", "-C", '{ProjectPath}/{Project:Id}/workspace/source', "pull", "--recurse-submodules"])
 		ret
-	is state::PULL_SUCCESS do
+	is project::state::PULL_SUCCESS do
 		Project:Next := :build
-		Project:task(state::BUILDING, ["/usr/bin/podman", "run", "--network", "host", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--read-only", 'builder-{Project:Id}'])
-	is state::BUILD_SUCCESS do
+		Project:task(project::state::BUILDING, ["/usr/bin/podman", "run", "--network", "host", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--read-only", 'builder-{Project:Id}'])
+	is project::state::BUILD_SUCCESS do
 		Project:Next := :build
 		Project:Version := old + 1
 		last(ProjectUpdateVersionStmt(Project:Version, Project:Id))
 		let Tag := Project:Tag:replace("$VERSION", string(Project:Version))
-		Project:task(state::PACKAGING, ["/usr/bin/podman", "build", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--squash", "-f", '{ProjectPath}/{Project:Id}/PackageSpec', "-t", Tag, '{ProjectPath}/{Project:Id}/context'])
-	is state::PACKAGE_SUCCESS do
+		Project:task(project::state::PACKAGING, ["/usr/bin/podman", "build", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--squash", "-f", '{ProjectPath}/{Project:Id}/PackageSpec', "-t", Tag, '{ProjectPath}/{Project:Id}/context'])
+	is project::state::PACKAGE_SUCCESS do
 		Project:Next := :build
 		let Tag := Project:Tag:replace("$VERSION", string(Project:Version))
-		Project:task(state::PUSHING, ["/usr/bin/podman", "push", Tag, '{Project:Destination}/{Tag}'])
+		Project:task(project::state::PUSHING, ["/usr/bin/podman", "push", Tag, '{Project:Destination}/{Tag}'])
 	end
 end
 
-meth :build_from(Project: project, State: state) do
+meth :build_from(Project: project, State: project::state) do
 	if Project:State % 3 = 1 then
 		Project:Next := :build_from(_, State)
 	elseif Project:State >= State then
-		Project:State := state(State - 2)
+		Project:State := project::state(State - 2)
 	end
 	Project:build
 end
@@ -283,7 +300,11 @@ Server:add_handler("/project/list"; Server, Message, Path, Query, Client) do
 		"id" is Project:Id,
 		"name" is Project:Name,
 		"state" is string(Project:State),
-		"task" is Project:Task,
+		"tasks" is list(Project:Tasks; Task) {
+			"id" is Task:Id,
+			"type" is Task:Type,
+			"state" is string(Task:State)
+		},
 		"version" is Project:Version
 	}))
 on Error do
@@ -299,7 +320,11 @@ Server:add_handler("/project/status"; Server, Message, Path, Query, Client) do
 	Message:set_status(200)
 	Message:set_response("application/json", soup::MemoryUse::static, json::encode({
 		"state" is string(Project:State),
-		"task" is Project:Task,
+		"tasks" is list(Project:Tasks; Task) {
+			"id" is Task:Id,
+			"type" is Task:Type,
+			"state" is string(Task:State)
+		},
 		"version" is Project:Version
 	}))
 on Error do
@@ -350,10 +375,10 @@ Server:add_handler("/project/build"; Server, Message, Path, Query, Client) do
 	let Stage := Params["stage"] or error("ParamError", "Missing parameter stage")
 	let Project := Projects[Id] or error("ParamError", "Invalid project")
 	when Stage
-	is "prepare" do Project:build_from(state::PREPARING)
-	is "pull" do Project:build_from(state::PULLING)
-	is "build" do Project:build_from(state::BUILDING)
-	is "package" do Project:build_from(state::PACKAGING)
+	is "prepare" do Project:build_from(project::state::PREPARING)
+	is "pull" do Project:build_from(project::state::PULLING)
+	is "build" do Project:build_from(project::state::BUILDING)
+	is "package" do Project:build_from(project::state::PACKAGING)
 	else error("ParamError", "Invalid stage")
 	end
 	Message:set_redirect(303, '/project/status?id={Id}')
