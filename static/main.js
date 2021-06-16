@@ -13,7 +13,7 @@ function projectsList(vnode) {
 }
 
 function projectBuild(project, event) {
-	return m.request({method: "POST", url: "/project/build", body: {id: project.id, stage: "prepare"}}).then(function(result) {
+	return m.request({method: "POST", url: "/project/build", body: {id: project.id, stage: event.target.value}}).then(function(result) {
 	});
 }
 
@@ -59,7 +59,14 @@ let Projects = {
 							]),
 							m("td", project.version.toString()),
 							m("td", [
-								m("button", {onclick: projectBuild.bind(null, project)}, "Build")
+								m("select", {onchange: projectBuild.bind(null, project)}, [
+									m("option", {}, ""),
+									m("option", {value: "clean"}, "Clean"),
+									m("option", {value: "prepare"}, "Prepare"),
+									m("option", {value: "pull"}, "Pull"),
+									m("option", {value: "build"}, "Build"),
+									m("option", {value: "package"}, "Package")
+								])
 							])
 						]);				
 					}))

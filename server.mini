@@ -55,11 +55,14 @@ def Projects := {}
 def ProjectPath := glib::canonicalize_filename("projects", nil)
 
 let ProjectCreateStmt := DB:statement("INSERT INTO projects(name, source, branch, destination, tag, state, version) VALUES(?, ?, ?, ?, ?, 'CLONING', 0) RETURNING id")
+let ProjectRepoStmt := DB:statement("SELECT source, branch FROM projects WHERE id = ?")
 let ProjectUpdateStateStmt := DB:statement("UPDATE projects SET state = ? WHERE id = ?")
 let ProjectUpdateVersionStmt := DB:statement("UPDATE projects SET version = ? WHERE id = ?")
 
 class: project("project", :Id, :Name, :Destination, :Tag, :State, :Version, :Tasks, :Next,
 	state is enum("state", [
+		"CREATING", "CREATE_SUCCESS", "CREATE_ERROR",
+		"CLEANING", "CLEAN_SUCCESS", "CLEAN_ERROR",
 		"CLONING", "CLONE_SUCCESS", "CLONE_ERROR",
 		"PREPARING", "PREPARE_SUCCESS", "PREPARE_ERROR",
 		"PULLING", "PULL_SUCCESS", "PULL_ERROR",
@@ -89,7 +92,7 @@ let TaskCreateStmt := DB:statement("INSERT INTO tasks(project, type, state, time
 let TaskUpdateStmt := DB:statement("UPDATE tasks SET state = ? WHERE id = ?")
 
 class: task("task", :Id, :Type, :State,
-	state is enum("state", ["RUNNING", "COMPLETE", "ERROR"])
+	state is enum("state", ["RUNNING", "SUCCESS", "ERROR"])
 )
 
 for (ProjectId, Id, Type, State) in DB:execute("SELECT project, id, type, state FROM tasks WHERE time > datetime('now','-1 hour') ORDER BY id") do
@@ -105,18 +108,16 @@ meth :task(Project: project, State: project::state, Command: list[string]) do
 		let TaskRoot := 'tasks/{Id}/'
 		glib::mkdir_with_parents(TaskRoot, 511)
 		let Out := glib::IOChannel::new_file('{TaskRoot}/out.log', "w")
-		let Err := glib::IOChannel::new_file('{TaskRoot}/err.log', "w")
-		log::info('Out = {Out:unix_get_fd}, Err = {Err:unix_get_fd}')
-		let (_, Pid) := glib::spawn_async_with_fds(nil, Command, [], glib::SpawnFlags::do_not_reap_child, nil, -1, Out:unix_get_fd, Out:unix_get_fd)
+		let OutFd := Out:unix_get_fd
+		let (_, Pid) := glib::spawn_async_with_fds(nil, Command, [], glib::SpawnFlags::do_not_reap_child, nil, -1, OutFd, OutFd)
 		Out:shutdown(false)
-		Err:shutdown(false)
 		Project:State := State
 		glib::child_watch_add(200, Pid; Pid, Status) do
 			log::info('Task complete ', Pid, ' ', Status)
 			glib::spawn_close_pid(Pid)
 			if Status = 0 then
 				Project:State := project::state(old + 1)
-				Task:State := task::state::COMPLETE
+				Task:State := task::state::SUCCESS
 			else
 				Project:State := project::state(old + 2)
 				Task:State := task::state::ERROR
@@ -141,6 +142,15 @@ meth :build(Project: project) do
 		ret Project:Next := :build
 	end
 	when Project:State
+	is project::state::CREATE_SUCCESS do
+		Project:Next := :build
+		Project:task(project::state::CLEANING, ["/usr/bin/rm", "-rfv", '{ProjectPath}/{Project:Id}/workspace/source'])
+		ret
+	is project::state::CLEAN_SUCCESS do
+		Project:Next := :build
+		let (URL, Branch) := last(ProjectRepoStmt(Project:Id))
+		Project:task(project::state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
+		ret
 	is project::state::CLONE_SUCCESS do
 		Project:Next := :build
 		Project:task(project::state::PREPARING, ["/usr/bin/podman", "build", "--squash", "-f", '{ProjectPath}/{Project:Id}/BuildSpec', "-t", 'builder-{Project:Id}', '{ProjectPath}/{Project:Id}/context'])
@@ -205,7 +215,7 @@ with AuthDomain := soup::AuthDomainBasic(realm is "racs") do
 	Server:add_auth_domain(AuthDomain)
 end
 
-Server:listen_local(8081, nil)
+Server:listen_all(8081, nil)
 log::info("Server running on http://localhost:8081")
 
 Server:add_handler("/"; Server, Message, Path, Query, Client) do
@@ -375,6 +385,7 @@ Server:add_handler("/project/build"; Server, Message, Path, Query, Client) do
 	let Stage := Params["stage"] or error("ParamError", "Missing parameter stage")
 	let Project := Projects[Id] or error("ParamError", "Invalid project")
 	when Stage
+	is "clean" do Project:build_from(project::state::CLEANING)
 	is "prepare" do Project:build_from(project::state::PREPARING)
 	is "pull" do Project:build_from(project::state::PULLING)
 	is "build" do Project:build_from(project::state::BUILDING)
