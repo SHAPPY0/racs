@@ -1,3 +1,4 @@
+#!/usr/local/bin/minilang
 gir: glib("GLib")
 gir: soup("Soup")
 gir: gobject("GObject")
@@ -59,8 +60,8 @@ let ProjectRepoStmt := DB:statement("SELECT source, branch FROM projects WHERE i
 let ProjectUpdateStateStmt := DB:statement("UPDATE projects SET state = ? WHERE id = ?")
 let ProjectUpdateVersionStmt := DB:statement("UPDATE projects SET version = ? WHERE id = ?")
 
-class: project("project", :Id, :Name, :Destination, :Tag, :State, :Version, :Tasks, :Next,
-	state is enum("state", [
+class: project(:Id, :Name, :Destination, :Tag, :State, :Version, :Tasks, :Next,
+	state is enum(
 		"CREATING", "CREATE_SUCCESS", "CREATE_ERROR",
 		"CLEANING", "CLEAN_SUCCESS", "CLEAN_ERROR",
 		"CLONING", "CLONE_SUCCESS", "CLONE_ERROR",
@@ -69,7 +70,7 @@ class: project("project", :Id, :Name, :Destination, :Tag, :State, :Version, :Tas
 		"BUILDING", "BUILD_SUCCESS", "BUILD_ERROR",
 		"PACKAGING", "PACKAGE_SUCCESS", "PACKAGE_ERROR",
 		"PUSHING", "PUSH_SUCCESS", "PUSH_ERROR"
-	])
+	)
 )
 
 fun project_create(Name, URL, Branch, Destination, Tag) do
@@ -91,8 +92,8 @@ def TaskPath := glib::canonicalize_filename("tasks", nil)
 let TaskCreateStmt := DB:statement("INSERT INTO tasks(project, type, state, time) VALUES(?, ?, 'RUNNING', datetime('now')) RETURNING id")
 let TaskUpdateStmt := DB:statement("UPDATE tasks SET state = ? WHERE id = ?")
 
-class: task("task", :Id, :Type, :State,
-	state is enum("state", ["RUNNING", "SUCCESS", "ERROR"])
+class: task(:Id, :Type, :State,
+	state is enum("RUNNING", "SUCCESS", "ERROR")
 )
 
 for (ProjectId, Id, Type, State) in DB:execute("SELECT project, id, type, state FROM tasks WHERE time > datetime('now','-1 hour') ORDER BY id") do
@@ -141,34 +142,34 @@ meth :build(Project: project) do
 	if Project:State % 3 = 1 then
 		ret Project:Next := :build
 	end
-	when Project:State
-	is project::state::CREATE_SUCCESS do
+	switch Project:State: project::state
+	case "CREATE_SUCCESS" do
 		Project:Next := :build
 		Project:task(project::state::CLEANING, ["/usr/bin/rm", "-rfv", '{ProjectPath}/{Project:Id}/workspace/source'])
 		ret
-	is project::state::CLEAN_SUCCESS do
+	case "CLEAN_SUCCESS" do
 		Project:Next := :build
 		let (URL, Branch) := last(ProjectRepoStmt(Project:Id))
 		Project:task(project::state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
 		ret
-	is project::state::CLONE_SUCCESS do
+	case "CLONE_SUCCESS" do
 		Project:Next := :build
 		Project:task(project::state::PREPARING, ["/usr/bin/podman", "build", "--squash", "-f", '{ProjectPath}/{Project:Id}/BuildSpec', "-t", 'builder-{Project:Id}', '{ProjectPath}/{Project:Id}/context'])
 		ret
-	is project::state::PREPARE_SUCCESS do
+	case "PREPARE_SUCCESS" do
 		Project:Next := :build
 		Project:task(project::state::PULLING, ["/usr/bin/git", "-C", '{ProjectPath}/{Project:Id}/workspace/source', "pull", "--recurse-submodules"])
 		ret
-	is project::state::PULL_SUCCESS do
+	case "PULL_SUCCESS" do
 		Project:Next := :build
 		Project:task(project::state::BUILDING, ["/usr/bin/podman", "run", "--network", "host", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--read-only", 'builder-{Project:Id}'])
-	is project::state::BUILD_SUCCESS do
+	case "BUILD_SUCCESS" do
 		Project:Next := :build
 		Project:Version := old + 1
 		last(ProjectUpdateVersionStmt(Project:Version, Project:Id))
 		let Tag := Project:Tag:replace("$VERSION", string(Project:Version))
 		Project:task(project::state::PACKAGING, ["/usr/bin/podman", "build", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--squash", "-f", '{ProjectPath}/{Project:Id}/PackageSpec', "-t", Tag, '{ProjectPath}/{Project:Id}/context'])
-	is project::state::PACKAGE_SUCCESS do
+	case "PACKAGE_SUCCESS" do
 		Project:Next := :build
 		let Tag := Project:Tag:replace("$VERSION", string(Project:Version))
 		Project:task(project::state::PUSHING, ["/usr/bin/podman", "push", Tag, '{Project:Destination}/{Tag}'])

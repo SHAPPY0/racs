@@ -1,6 +1,12 @@
 let Sidebar = {
 	view: function() {
-		return m("aside.menu", [])
+		return m("aside.menu", [
+			m("p.menu-label", "Projects"),
+			m("ul.menu-list", [
+				m("li", m(m.route.Link, {href: "/projects"}, "List")),
+				m("li", m(m.route.Link, {href: "/project/create"}, "Create"))
+			])
+		])
 	}
 }
 
@@ -76,6 +82,16 @@ let Projects = {
 	}
 }
 
+let ProjectCreate = {
+	view: function(vnode) {
+		return m("div.columns", [
+			m("div.column", [m(Sidebar)]),
+			m("form", [
+			])
+		])
+	}
+}
+
 var logs = "";
 var offset = 0;
 
@@ -112,5 +128,6 @@ let Task = {
 
 m.route(document.body, "/projects", {
 	"/projects": Projects,
+	"/project/create": ProjectCreate,
 	"/task/:id": Task
 })
