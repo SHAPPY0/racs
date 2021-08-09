@@ -148,10 +148,10 @@ func projectRoutine(p *project) {
 		case BUILD_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
-			tag := strings.Replace(p.tag, "$VERSION", string(p.version), -1)
+			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PACKAGE_SUCCESS:
-			tag := strings.Replace(p.tag, "$VERSION", string(p.version), -1)
+			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			p.taskCreate(PUSHING, "/usr/bin/podman", "push", tag, fmt.Sprintf("%s/%s", p.destination, tag))
 		}
 		log.Printf("Project %d finished task %v", p.id, a)
