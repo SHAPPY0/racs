@@ -166,10 +166,10 @@ func projectCreate(name string, url string, branch string, destination string, t
 	os.Mkdir(fmt.Sprintf("%s/%d", projectPath, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectPath, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectPath, id), 0777)
-	p := &project{id, name, destination, tag, CLONING, 0, make([]*task, 0), make(chan action, 10)}
+	p := &project{id, name, destination, tag, CREATE_SUCCESS, 0, make([]*task, 0), make(chan action, 10)}
 	projects[p.id] = p
 	go projectRoutine(p)
-	taskCreate(p, CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectPath, id))
+	//taskCreate(p, CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectPath, id))
 	return p
 }
 
@@ -268,7 +268,15 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleProjectCreate(w http.ResponseWriter, r *http.Request) {
-
+	params := getParams(r)
+	name := params["name"]
+	url := params["url"]
+	branch := params["branch"]
+	destination := params["destination"]
+	tag := params["tag"]
+	p := projectCreate(name, url, branch, destination, tag)
+	w.WriteHeader(303)
+	w.Write([]byte(fmt.Sprintf("/project/status?id=%d", p.id)))
 }
 
 func handleProjectUpload(w http.ResponseWriter, r *http.Request) {
