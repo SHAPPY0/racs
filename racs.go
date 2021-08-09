@@ -86,7 +86,12 @@ type project struct {
 
 var db *sql.DB
 var projects = map[int]*project{}
-var projectPath, _ = filepath.Abs("projects")
+var projectAbs, _ = filepath.Abs("projects")
+
+func (p *project) taskCreate(state state, command string, args ...string) {
+	log.Printf("taskCreate(%d, %s, %s, %v)", p.id, state, command, args)
+	p.queue <- action{state, command, args}
+}
 
 func projectRoutine(p *project) {
 	for {
@@ -127,35 +132,30 @@ func projectRoutine(p *project) {
 		}
 		switch p.state {
 		case CREATE_SUCCESS:
-			taskCreate(p, CLEANING, "/usr/bin/rm", "-rfv", fmt.Sprintf("%s/%d/workspace/source", projectPath, p.id))
+			p.taskCreate(CLEANING, "/usr/bin/rm", "-rfv", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id))
 		case CLEAN_SUCCESS:
 			rows, _ := db.Query(`SELECT source, branch FROM projects WHERE id = ?`, p.id)
 			rows.Next()
 			var url, branch string
 			rows.Scan(&url, &branch)
-			taskCreate(p, CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectPath, p.id))
+			p.taskCreate(CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id))
 		case CLONE_SUCCESS:
-			taskCreate(p, PREPARING, "/usr/bin/podman", "build", "--squash", "-f", fmt.Sprintf("%s/%d/BuildSpec", projectPath, p.id), "-t", fmt.Sprintf("builder-%d", p.id), fmt.Sprintf("%s/%d/context", projectPath, p.id))
+			p.taskCreate(PREPARING, "/usr/bin/podman", "build", "--squash", "-f", fmt.Sprintf("%s/%d/BuildSpec", projectAbs, p.id), "-t", fmt.Sprintf("builder-%d", p.id), fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PREPARE_SUCCESS:
-			taskCreate(p, PULLING, "/usr/bin/git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectPath, p.id), "pull", "--recurse-submodules")
+			p.taskCreate(PULLING, "/usr/bin/git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "pull", "--recurse-submodules")
 		case PULL_SUCCESS:
-			taskCreate(p, BUILDING, "/usr/bin/podman", "run", "--network", "host", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectPath, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
+			p.taskCreate(BUILDING, "/usr/bin/podman", "run", "--network", "host", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
 		case BUILD_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
 			tag := strings.Replace(p.tag, "$VERSION", string(p.version), -1)
-			taskCreate(p, PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectPath, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectPath, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectPath, p.id))
+			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PACKAGE_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", string(p.version), -1)
-			taskCreate(p, PUSHING, "/usr/bin/podman", "push", tag, fmt.Sprintf("%s/%s", p.destination, tag))
+			p.taskCreate(PUSHING, "/usr/bin/podman", "push", tag, fmt.Sprintf("%s/%s", p.destination, tag))
 		}
 		log.Printf("Project %d finished task %v", p.id, a)
 	}
-}
-
-func taskCreate(p *project, state state, command string, args ...string) {
-	log.Printf("taskCreate(%d, %s, %s, %v)", p.id, state, command, args)
-	p.queue <- action{state, command, args}
 }
 
 func projectCreate(name string, url string, branch string, destination string, tag string) *project {
@@ -163,13 +163,13 @@ func projectCreate(name string, url string, branch string, destination string, t
 	db.QueryRow(`	INSERT INTO projects(name, source, branch, destination, tag, state, version)
 		VALUES(?, ?, ?, ?, ?, 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag).Scan(&id)
 	log.Printf("Project created %s %s %s %s\n", id, name, url, branch)
-	os.Mkdir(fmt.Sprintf("%s/%d", projectPath, id), 0777)
-	os.Mkdir(fmt.Sprintf("%s/%d/context", projectPath, id), 0777)
-	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectPath, id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{id, name, destination, tag, CREATE_SUCCESS, 0, make([]*task, 0), make(chan action, 10)}
 	projects[p.id] = p
 	go projectRoutine(p)
-	//taskCreate(p, CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectPath, id))
+	//p.taskCreate(CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, id))
 	return p
 }
 
@@ -292,7 +292,7 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 	} else {
 		rd, _ := file.Open()
-		wr, _ := os.Create(fmt.Sprintf("%s/%d/%s", projectPath, id, name))
+		wr, _ := os.Create(fmt.Sprintf("%s/%d/%s", projectAbs, id, name))
 		io.Copy(wr, rd)
 		wr.Close()
 		rd.Close()
@@ -308,15 +308,15 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request) {
 	p := projects[id]
 	switch stage {
 	case "clean":
-		taskCreate(p, CREATE_SUCCESS, "")
+		p.taskCreate(CREATE_SUCCESS, "")
 	case "prepare":
-		taskCreate(p, CLONE_SUCCESS, "")
+		p.taskCreate(CLONE_SUCCESS, "")
 	case "pull":
-		taskCreate(p, PREPARE_SUCCESS, "")
+		p.taskCreate(PREPARE_SUCCESS, "")
 	case "build":
-		taskCreate(p, PULL_SUCCESS, "")
+		p.taskCreate(PULL_SUCCESS, "")
 	case "package":
-		taskCreate(p, BUILD_SUCCESS, "")
+		p.taskCreate(BUILD_SUCCESS, "")
 	}
 	w.WriteHeader(303)
 	w.Write([]byte(fmt.Sprintf("/project/status?id=%d", id)))
@@ -335,7 +335,12 @@ func handleTaskLogs(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	var err error
+
+	os.Mkdir("projects", 0777)
+	os.Mkdir("tasks", 0777)
+
 	db, err = sql.Open("sqlite3", "file:main.db?cache=shared")
 	if err != nil {
 		log.Fatal(err)
@@ -385,7 +390,6 @@ func main() {
 	for state := NONE; state <= PUSH_ERROR; state += 1 {
 		states[state.String()] = state
 	}
-	fmt.Print(states, "\n")
 
 	rows, err := db.Query(`SELECT id, name, destination, tag, state, version FROM projects`)
 	for rows.Next() {
@@ -409,13 +413,11 @@ func main() {
 		var kind string
 		var state string
 		rows.Scan(&pid, &id, &kind, &state)
-		log.Printf("Task %d:%d %s %s", pid, id, kind, state)
 		p := projects[pid]
 		if p != nil {
 			p.tasks = append(p.tasks, &task{id, kind, state})
 		}
 	}
-	log.Println(projects)
 
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/project/list", handleProjectList)
