@@ -110,7 +110,7 @@ meth :task(Project: project, State: project::state, Command: list[string]) do
 		glib::mkdir_with_parents(TaskRoot, 511)
 		let Out := glib::IOChannel::new_file('{TaskRoot}/out.log', "w")
 		let OutFd := Out:unix_get_fd
-		let (_, Pid) := glib::spawn_async_with_fds(nil, Command, [], glib::SpawnFlags::do_not_reap_child, nil, -1, OutFd, OutFd)
+		let (_, Pid) := glib::spawn_async_with_fds(nil, Command, nil, glib::SpawnFlags::do_not_reap_child, nil, -1, OutFd, OutFd)
 		Out:shutdown(false)
 		Project:State := State
 		glib::child_watch_add(200, Pid; Pid, Status) do
@@ -142,6 +142,7 @@ meth :build(Project: project) do
 	if Project:State % 3 = 1 then
 		ret Project:Next := :build
 	end
+	print('Project:State = {type(Project:State)}\n')
 	switch Project:State: project::state
 	case "CREATE_SUCCESS" do
 		Project:Next := :build

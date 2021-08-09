@@ -64,6 +64,7 @@ let Projects = {
 								}))
 							]),
 							m("td", project.version.toString()),
+							m("td", m(m.route.Link, {href: "/project/upload/" + project.id}, "Upload")),
 							m("td", [
 								m("select", {onchange: projectBuild.bind(null, project)}, [
 									m("option", {}, ""),
@@ -86,9 +87,83 @@ let ProjectCreate = {
 	view: function(vnode) {
 		return m("div.columns", [
 			m("div.column", [m(Sidebar)]),
-			m("form", [
+			m("div.column", [
+				m("form", {onsubmit: function(e) {
+					e.preventDefault()
+					console.log(e)
+					m.request({method: "POST", url: "/project/create",  responseType: "text", body: new FormData(e.target)}).then(function(result) {
+						m.route.set("/projects");
+					}).catch(function(error) {
+						m.route.set("/projects");
+					});
+				}}, [
+					m("div.field", [
+						m("label.label", "Name"),
+						m("div.control", m("input", {name: "name"}))
+					]),
+					m("div.field", [
+						m("label.label", "URL"),
+						m("div.control", m("input", {name: "url"}))
+					]),
+					m("div.field", [
+						m("label.label", "Branch"),
+						m("div.control", m("input", {name: "branch"}))
+					]),
+					m("div.field", [
+						m("label.label", "Destination"),
+						m("div.control", m("input", {name: "destination"}))
+					]),
+					m("div.field", [
+						m("label.label", "Tag"),
+						m("div.control", m("input", {name: "tag"}))
+					]),
+					m("div.field", [
+						m("div.control", m("button.is-link", "Create"))
+					])
+				])
 			])
-		])
+		]);
+	}
+}
+
+let ProjectUpload = {
+	view: function(vnode) {
+		return m("div.columns", [
+			m("div.column", [m(Sidebar)]),
+			m("div.column", [
+				m("form", {onsubmit: function(e) {
+					e.preventDefault()
+					console.log(e)
+					m.request({method: "POST", url: "/project/upload",  responseType: "text", body: new FormData(e.target)}).then(function(result) {
+						m.route.set("/projects");
+					}).catch(function(error) {
+						m.route.set("/projects");
+					});
+					
+				}}, [
+					m("input", {type: "hidden", name: "id", value: vnode.attrs.id}),
+					m("div.field", [
+						m("div.file.has-name", [
+							m("label.file-label", [
+								m("input.file-input", {type: "file", name: "file"}),
+								m("span.file-cta", [
+									m("span.file-icon", m("i.fas.fa-upload")),
+									m("span.file-label", "Choose a file…")
+								]),
+								m("span.file-name")
+							])
+						])
+					]),
+					m("div.field", [
+						m("label.label", "Name"),
+						m("div.control", m("input", {name: "name"}))
+					]),
+					m("div.field", [
+						m("div.control", m("button.is-link", "Upload"))
+					])
+				])
+			])
+		]);
 	}
 }
 
@@ -129,5 +204,6 @@ let Task = {
 m.route(document.body, "/projects", {
 	"/projects": Projects,
 	"/project/create": ProjectCreate,
+	"/project/upload/:id": ProjectUpload,
 	"/task/:id": Task
 })
