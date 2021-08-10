@@ -77,6 +77,8 @@ type action struct {
 type project struct {
 	id          int
 	name        string
+	url         string
+	branch      string
 	destination string
 	tag         string
 	state       state
@@ -164,13 +166,13 @@ func projectRoutine(p *project) {
 
 func projectCreate(name string, url string, branch string, destination string, tag string) *project {
 	var id int
-	db.QueryRow(`	INSERT INTO projects(name, source, branch, destination, tag, state, version)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, state, version)
 		VALUES(?, ?, ?, ?, ?, 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag).Scan(&id)
 	log.Printf("Project created %s %s %s %s\n", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
-	p := &project{id, name, destination, tag, CREATE_SUCCESS, 0, make([]*task, 0), make(chan action, 10)}
+	p := &project{id, name, url, branch, destination, tag, CREATE_SUCCESS, 0, make([]*task, 0), make(chan action, 10)}
 	projects[p.id] = p
 	go projectRoutine(p)
 	//p.taskCreate(CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, id))
@@ -229,11 +231,15 @@ func handleProjectList(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		result = append(result, map[string]interface{}{
-			"id":      id,
-			"name":    p.name,
-			"state":   p.state.String(),
-			"tasks":   tasks,
-			"version": p.version,
+			"id":          id,
+			"name":        p.name,
+			"url":         p.url,
+			"branch":      p.branch,
+			"destination": p.destination,
+			"tag":         p.tag,
+			"state":       p.state.String(),
+			"tasks":       tasks,
+			"version":     p.version,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -269,7 +275,48 @@ func getParams(r *http.Request) map[string]string {
 }
 
 func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
+	params := getParams(r)
+	id, _ := strconv.Atoi(params["id"])
+	p := projects[id]
+	if p == nil {
+		w.WriteHeader(500)
+	} else {
+		w.Header().Add("Content-Type", "application/json")
+		j, _ := json.Marshal(map[string]interface{}{
+			"id":          id,
+			"name":        p.name,
+			"url":         p.url,
+			"branch":      p.branch,
+			"destination": p.destination,
+			"tag":         p.tag,
+		})
+		w.Write(j)
+	}
+}
 
+func handleProjectUpdate(w http.ResponseWriter, r *http.Request) {
+	params := getParams(r)
+	id, _ := strconv.Atoi(params["id"])
+	p := projects[id]
+	if p == nil {
+		w.WriteHeader(500)
+	} else {
+		p.name = params["name"]
+		p.url = params["url"]
+		p.branch = params["branch"]
+		p.destination = params["destination"]
+		p.tag = params["tag"]
+		db.Exec(`UPDATE projects SET name = ?, source = ?, branch = ?, destination = ?, tag = ? WHERE id = ?`,
+			p.name, p.url, p.branch, p.destination, p.tag, p.id)
+		redirect := params["redirect"]
+		if len(redirect) > 0 {
+			w.Header().Add("Location", redirect)
+			w.WriteHeader(303)
+		} else {
+			w.WriteHeader(200)
+			w.Write([]byte("OK"))
+		}
+	}
 }
 
 func handleProjectCreate(w http.ResponseWriter, r *http.Request) {
@@ -408,17 +455,19 @@ func main() {
 		states[state.String()] = state
 	}
 
-	rows, err := db.Query(`SELECT id, name, destination, tag, state, version FROM projects`)
+	rows, err := db.Query(`SELECT id, name, source, branch, destination, tag, state, version FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
+		var source string
+		var branch string
 		var destination string
 		var tag string
 		var stateName string
 		var version int
-		rows.Scan(&id, &name, &destination, &tag, &stateName, &version)
+		rows.Scan(&id, &name, &source, &branch, &destination, &tag, &stateName, &version)
 		state := states[stateName]
-		p := &project{id, name, destination, tag, state, version, make([]*task, 0), make(chan action, 10)}
+		p := &project{id, name, source, branch, destination, tag, state, version, make([]*task, 0), make(chan action, 10)}
 		projects[p.id] = p
 		go projectRoutine(p)
 	}
@@ -442,6 +491,7 @@ func main() {
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/project/list", handleProjectList)
 	http.HandleFunc("/project/status", handleProjectStatus)
+	http.HandleFunc("/project/update", handleProjectUpdate)
 	http.HandleFunc("/project/create", handleProjectCreate)
 	http.HandleFunc("/project/upload", handleProjectUpload)
 	http.HandleFunc("/project/build", handleProjectBuild)

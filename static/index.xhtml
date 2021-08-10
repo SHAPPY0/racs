@@ -5,23 +5,6 @@
 	<script src="lib.js"/>
 </head>
 <body>
-	<table class="table">
-		<thead>
-			<tr>
-				<th>Id</th>
-				<th>Name</th>
-				<th>State</th>
-				<th>Task</th>
-				<th>Version</th>
-				<th>Upload</th>
-				<th>Build</th>
-			</tr>
-		</thead>
-		<tbody id="projects"/>
-	</table>
-	<div>
-		<button class="button is-link" onclick="showCreate()">Create Project</button>
-	</div>
 	<div class="modal" id="create">
 		<div class="modal-background"/>
 		<form class="modal-card" action="/project/create" method="POST">
@@ -101,6 +84,70 @@
 			</footer>
 		</form>
 	</div>
+	<div class="modal" id="update">
+		<div class="modal-background"/>
+		<form class="modal-card" action="/project/update" method="POST">
+			<header class="modal-card-head">
+				<p class="modal-card-title">Create Project</p>
+				<button class="delete" aria-label="close" onclick="hideUpdate()" type="reset"/>
+			</header>
+			<section class="modal-card-body">
+				<input type="hidden" name="redirect" value="/index.xhtml"/>
+				<input type="hidden" name="id" id="update_id" value=""/>
+				<div class="field">
+					<label class="label">Name</label>
+					<div class="control">
+						<input class="input" name="name" id="update_name"/>
+					</div>
+				</div>
+				<div class="field">
+					<label class="label">URL</label>
+					<div class="control">
+						<input class="input" name="url" id="update_url"/>
+					</div>
+				</div>
+				<div class="field">
+					<label class="label">Branch</label>
+					<div class="control">
+						<input class="input" name="branch" id="update_branch"/>
+					</div>
+				</div>
+				<div class="field">
+					<label class="label">Destination</label>
+					<div class="control">
+						<input class="input" name="destination" id="update_destination"/>
+					</div>
+				</div>
+				<div class="field">
+					<label class="label">Tag</label>
+					<div class="control">
+						<input class="input" name="tag" id="update_tag"/>
+					</div>
+				</div>
+			</section>
+			<footer class="modal-card-foot">
+				<button class="button is-link" type="submit">Update</button>
+			</footer>
+		</form>
+	</div>
+	<table class="table">
+		<thead>
+			<tr>
+				<th>Id</th>
+				<th>Name</th>
+				<th>State</th>
+				<th>Task</th>
+				<th>Version</th>
+				<th>Upload</th>
+				<th>Update</th>
+				<th>Build</th>
+			</tr>
+		</thead>
+		<tbody id="projects"/>
+	</table>
+	<div>
+		<button class="button is-link" onclick="showCreate()">Create Project</button>
+	</div>
 	<script type="text/javascript">
 		var container = document.getElementById("projects");
 		var projects = [];
@@ -123,6 +170,9 @@
 							create("td",
 								create("button.button.is-small.is-link", {"on-click": showUpload.bind(result)}, "Upload"),
 							),
+							create("td",
+									create("button.button.is-small.is-link", {"on-click": showUpdate.bind(result)}, "Update"),
+								),
 							create("td",
 								create("div.select.is-small.is-primary",
 									create("select", {"on-change": build.bind(result)},
@@ -163,7 +213,7 @@
 			modal.addClass("is-active");
 		}
 		
-		function hideCreate(event) {
+		function hideCreate() {
 			var modal = document.getElementById("create");
 			modal.removeClass("is-active");
 		}
@@ -174,8 +224,24 @@
 			document.getElementById("upload_id").value = this.id;
 		}
 		
-		function hideUpload(event) {
+		function hideUpload() {
 			var modal = document.getElementById("upload");
+			modal.removeClass("is-active");
+		}
+		
+		function showUpdate() {
+			var modal = document.getElementById("update");
+			modal.addClass("is-active");
+			document.getElementById("update_id").value = this.id;
+			document.getElementById("update_name").value = this.name;
+			document.getElementById("update_url").value = this.url;
+			document.getElementById("update_branch").value = this.branch;
+			document.getElementById("update_destination").value = this.destination;
+			document.getElementById("update_tag").value = this.tag;
+		}
+		
+		function hideUpdate() {
+			var modal = document.getElementById("update");
 			modal.removeClass("is-active");
 		}
 		
