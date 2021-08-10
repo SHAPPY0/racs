@@ -1,0 +1,79 @@
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml"> 
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="stylesheet" href="/bulma.min.css"/>
+	<script src="lib.js"/>
+</head>
+<body>
+	<table class="table">
+		<thead>
+			<tr>
+				<th>Id</th>
+				<th>Name</th>
+				<th>State</th>
+				<th>Task</th>
+				<th>Version</th>
+				<th>Actions</th>
+			</tr>
+		</thead>
+		<tbody id="projects"/>
+	</table>
+	<div>
+		<a class="button is-link" href="/create.xhtml">Create Project</a>
+	</div>
+	<script type="text/javascript">
+		var container = document.getElementById("projects");
+		var projects = [];
+		function fetchProjects() {
+			fetch("/project/list").then(response => response.json()).then(results => {
+				results.forEach(result => {
+					var project = projects[result.id];
+					if (!project) {
+						project = projects[result.id] = {
+							state: create("td"),
+							tasks: create("td"),
+							version: create("td")
+						};
+						container.appendChild(create("tr",
+							create("td", result.id.toString()),
+							create("td", result.name),
+							create("td", project.state),
+							create("td", project.tasks),
+							create("td", project.version),
+							create("td",
+								create("a", {href: `/upload.xhtml?project=${result.id}`}, "Upload"),
+								create("select", {"on-change": build.bind(result)},
+									create("option", ""),
+									create("option", {value: "clean"}, "Clean"),
+									create("option", {value: "prepare"}, "Prepare"),
+									create("option", {value: "pull"}, "Pull"),
+									create("option", {value: "build"}, "Build"),
+									create("option", {value: "package"}, "Package")
+								)
+							)
+						));
+					}
+					project.state.textContent = result.state;
+					project.tasks.removeChildren();
+					project.tasks.appendChild(create("table",
+						result.tasks.map(task => create("tr",
+							create("td", create("a", {href: `/log.xhtml?task=${task.id}`}, task.id.toString())),
+							create("td", task.type),
+							create("td", task.state),
+							create("td", task.time)
+						))
+					));
+					project.version.textContent = result.version.toString();
+				});
+			});
+		}
+		function build(event) {;
+			var stage = event.target.value;
+			event.target.value = "";
+			fetch(`/project/build?id=${this.id}&amp;stage=${stage}`);
+		}
+		fetchProjects();
+		setInterval(fetchProjects, 1000);
+	</script>
+</body>
+</html>

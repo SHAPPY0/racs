@@ -65,6 +65,7 @@ type task struct {
 	id    int
 	kind  string
 	state string
+	time  string
 }
 
 type action struct {
@@ -100,16 +101,19 @@ func projectRoutine(p *project) {
 		log.Printf("Project %d received task %v", p.id, a)
 		p.state = a.state
 		if len(a.command) > 0 {
-			res, err := db.Exec(`INSERT INTO tasks(project, type, state, time)
-				VALUES(?, ?, 'RUNNING', datetime('now'))`, p.id, p.state.String())
+			var id int
+			var time string
+			err := db.QueryRow(`INSERT INTO tasks(project, type, state, time)
+				VALUES(?, ?, 'RUNNING', datetime('now')) RETURNING id, time`, p.id, p.state.String()).Scan(&id, &time)
 			if err != nil {
 				log.Fatal(err)
 			}
-			id64, err := res.LastInsertId()
-			id := int(id64)
 			log.Printf("Creating task %d:%d", p.id, id)
-			t := &task{id, p.state.String(), "RUNNING"}
+			t := &task{id, p.state.String(), "RUNNING", time}
 			p.tasks = append(p.tasks, t)
+			if len(p.tasks) > 5 {
+				p.tasks = p.tasks[1:]
+			}
 			taskRoot := fmt.Sprintf("tasks/%d", id)
 			os.Mkdir(taskRoot, 0777)
 			log.Printf("task %s %v", a.command, a.args)
@@ -221,6 +225,7 @@ func handleProjectList(w http.ResponseWriter, r *http.Request) {
 				"id":    task.id,
 				"type":  task.kind,
 				"state": task.state,
+				"time":  task.time,
 			})
 		}
 		result = append(result, map[string]interface{}{
@@ -275,8 +280,14 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	destination := params["destination"]
 	tag := params["tag"]
 	p := projectCreate(name, url, branch, destination, tag)
-	w.WriteHeader(303)
-	w.Write([]byte(fmt.Sprintf("/project/status?id=%d", p.id)))
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(201)
+		w.Write([]byte(strconv.Itoa(p.id)))
+	}
 }
 
 func handleProjectUpload(w http.ResponseWriter, r *http.Request) {
@@ -296,8 +307,14 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request) {
 		io.Copy(wr, rd)
 		wr.Close()
 		rd.Close()
-		w.WriteHeader(303)
-		w.Write([]byte(fmt.Sprintf("/project/status?id=%d", id)))
+		redirect := params["redirect"]
+		if len(redirect) > 0 {
+			w.Header().Add("Location", redirect)
+			w.WriteHeader(303)
+		} else {
+			w.WriteHeader(200)
+			w.Write([]byte("OK"))
+		}
 	}
 }
 
@@ -318,8 +335,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request) {
 	case "package":
 		p.taskCreate(BUILD_SUCCESS, "")
 	}
-	w.WriteHeader(303)
-	w.Write([]byte(fmt.Sprintf("/project/status?id=%d", id)))
+	w.WriteHeader(200)
+	w.Write([]byte("OK"))
 }
 
 func handleTaskLogs(w http.ResponseWriter, r *http.Request) {
@@ -405,17 +422,20 @@ func main() {
 		projects[p.id] = p
 		go projectRoutine(p)
 	}
-	rows, err = db.Query(`SELECT project, id, type, state FROM tasks WHERE time > datetime('now', '-1 hour') ORDER BY id`)
-	//rows, err = db.Query(`SELECT project, id, type, state FROM tasks ORDER BY id`)
+	rows, err = db.Query(`SELECT project, id, type, state, time FROM tasks ORDER BY id`)
 	for rows.Next() {
 		var pid int
 		var id int
 		var kind string
 		var state string
-		rows.Scan(&pid, &id, &kind, &state)
+		var time string
+		rows.Scan(&pid, &id, &kind, &state, &time)
 		p := projects[pid]
 		if p != nil {
-			p.tasks = append(p.tasks, &task{id, kind, state})
+			p.tasks = append(p.tasks, &task{id, kind, state, time})
+			if len(p.tasks) > 5 {
+				p.tasks = p.tasks[1:]
+			}
 		}
 	}
 
