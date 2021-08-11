@@ -87,13 +87,34 @@ type project struct {
 	queue       chan action
 }
 
+type broker struct {
+	events     chan []byte
+	register   chan chan []byte
+	unregister chan chan []byte
+	clients    map[chan []byte]bool
+}
+
 var db *sql.DB
 var projects = map[int]*project{}
 var projectAbs, _ = filepath.Abs("projects")
+var clients = &broker{
+	make(chan []byte),
+	make(chan chan []byte),
+	make(chan chan []byte),
+	make(map[chan []byte]bool),
+}
 
 func (p *project) taskCreate(state state, command string, args ...string) {
 	log.Printf("taskCreate(%d, %s, %s, %v)", p.id, state, command, args)
 	p.queue <- action{state, command, args}
+}
+
+func projectEvent(event map[string]interface{}) {
+	bytes, err := json.Marshal(event)
+	if err != nil {
+		log.Fatal(err)
+	}
+	clients.events <- bytes
 }
 
 func projectRoutine(p *project) {
@@ -116,6 +137,14 @@ func projectRoutine(p *project) {
 			if len(p.tasks) > 5 {
 				p.tasks = p.tasks[1:]
 			}
+			projectEvent(map[string]interface{}{
+				"event":   "task/create",
+				"project": p.id,
+				"id":      t.id,
+				"type":    t.kind,
+				"time":    t.time,
+				"state":   "RUNNING",
+			})
 			taskRoot := fmt.Sprintf("tasks/%d", id)
 			os.Mkdir(taskRoot, 0777)
 			log.Printf("task %s %v", a.command, a.args)
@@ -135,6 +164,17 @@ func projectRoutine(p *project) {
 			log.Printf("Task %d completed", id)
 			db.Exec(`UPDATE projects SET state = ? WHERE id = ?`, p.state.String(), p.id)
 			db.Exec(`UPDATE tasks SET state = ? WHERE id = ?`, t.state, t.id)
+			projectEvent(map[string]interface{}{
+				"event": "project/state",
+				"id":    p.id,
+				"state": p.state.String(),
+			})
+			projectEvent(map[string]interface{}{
+				"event":   "task/state",
+				"project": p.id,
+				"id":      t.id,
+				"state":   t.state,
+			})
 		}
 		switch p.state {
 		case CREATE_SUCCESS:
@@ -176,6 +216,17 @@ func projectCreate(name string, url string, branch string, destination string, t
 	projects[p.id] = p
 	go projectRoutine(p)
 	//p.taskCreate(CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, id))
+	projectEvent(map[string]interface{}{
+		"event":       "project/create",
+		"id":          p.id,
+		"name":        p.name,
+		"url":         p.url,
+		"branch":      p.branch,
+		"destination": p.destination,
+		"tag":         p.tag,
+		"state":       p.state.String(),
+		"version":     p.version,
+	})
 	return p
 }
 
@@ -218,7 +269,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleProjectList(w http.ResponseWriter, r *http.Request) {
+func projectList() []map[string]interface{} {
 	result := make([]map[string]interface{}, 0)
 	for id, p := range projects {
 		tasks := make([]interface{}, 0)
@@ -245,9 +296,46 @@ func handleProjectList(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(result, func(i, j int) bool {
 		return result[i]["id"].(int) < result[j]["id"].(int)
 	})
+	return result
+}
+
+func handleProjectList(w http.ResponseWriter, r *http.Request) {
+	result := projectList()
 	w.Header().Add("Content-Type", "application/json")
 	j, _ := json.Marshal(result)
 	w.Write(j)
+}
+
+func handleProjectEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	events := make(chan []byte)
+	clients.register <- events
+	defer func() {
+		clients.unregister <- events
+	}()
+	notify := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notify
+		clients.unregister <- events
+	}()
+	j, _ := json.Marshal(map[string]interface{}{
+		"event":    "project/list",
+		"projects": projectList(),
+	})
+	fmt.Fprintf(w, "data: %s\n\n", j)
+	flusher.Flush()
+	for {
+		fmt.Fprintf(w, "data: %s\n\n", <-events)
+		flusher.Flush()
+	}
 }
 
 func getParams(r *http.Request) map[string]string {
@@ -371,6 +459,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request) {
 	stage := params["stage"]
 	p := projects[id]
 	switch stage {
+	case "clone":
+		p.taskCreate(CLEAN_SUCCESS, "")
 	case "clean":
 		p.taskCreate(CREATE_SUCCESS, "")
 	case "prepare":
@@ -381,6 +471,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request) {
 		p.taskCreate(PULL_SUCCESS, "")
 	case "package":
 		p.taskCreate(BUILD_SUCCESS, "")
+	case "push":
+		p.taskCreate(PACKAGE_SUCCESS, "")
 	}
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
@@ -389,11 +481,14 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request) {
 func handleTaskLogs(w http.ResponseWriter, r *http.Request) {
 	params := getParams(r)
 	id, _ := strconv.Atoi(params["id"])
+	var state string
+	db.QueryRow(`SELECT state FROM tasks WHERE id = ?`, id).Scan(&state)
 	offset, _ := strconv.ParseInt(params["offset"], 10, 64)
 	file, _ := os.Open(fmt.Sprintf("tasks/%d/out.log", id))
 	file.Seek(offset, 0)
 	bytes, _ := ioutil.ReadAll(file)
 	w.Header().Add("Content-Type", "text/plain")
+	w.Header().Add("X-Task-State", state)
 	w.Write(bytes)
 }
 
@@ -488,9 +583,25 @@ func main() {
 		}
 	}
 
+	go func() {
+		for {
+			select {
+			case client := <-clients.register:
+				clients.clients[client] = true
+			case client := <-clients.unregister:
+				delete(clients.clients, client)
+			case event := <-clients.events:
+				for client, _ := range clients.clients {
+					client <- event
+				}
+			}
+		}
+	}()
+
 	http.HandleFunc("/", handleRoot)
 	http.HandleFunc("/project/list", handleProjectList)
 	http.HandleFunc("/project/status", handleProjectStatus)
+	http.HandleFunc("/project/events", handleProjectEvents)
 	http.HandleFunc("/project/update", handleProjectUpdate)
 	http.HandleFunc("/project/create", handleProjectCreate)
 	http.HandleFunc("/project/upload", handleProjectUpload)
