@@ -424,20 +424,29 @@
 					)
 				));
 			}
-			project.state.textContent = result.state;
-			project.state.classList = "tag";
-			if (result.state.endsWith("_SUCCESS")) {
-				project.state.addClass("is-success");
-			} else if (result.state.endsWith("_ERROR")) {
-				project.state.addClass("is-danger");
-			} else {
-				project.state.addClass("is-info");
-			}
-			if (result.tasks !== undefined) {
-				result.tasks.forEach(result => updateTask(project, result));
-			}
-			if (result.version !== undefined) {
-				project.version.textContent = result.version.toString();
+			for (var key in result) {
+				switch (key) {
+				case "state": {
+					project.state.textContent = result.state;
+					project.state.classList = "tag";
+					if (result.state.endsWith("_SUCCESS")) {
+						project.state.addClass("is-success");
+					} else if (result.state.endsWith("_ERROR")) {
+						project.state.addClass("is-danger");
+					} else {
+						project.state.addClass("is-info");
+					}
+					break;
+				}
+				case "tasks": {
+					result.tasks.forEach(result => updateTask(project, result));
+					break;
+				}
+				case "version": {
+					project.version.textContent = result.version.toString();
+					break;
+				}
+				}
 			}
 		}
 		
@@ -463,6 +472,7 @@
 				break;
 			case "project/create":
 			case "project/state":
+			case "project/version":
 				updateProject(event);
 				break;
 			case "task/create":

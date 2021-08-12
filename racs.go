@@ -222,11 +222,16 @@ func projectRoutine(p *project) {
 		case PULL_SUCCESS:
 			p.taskCreate(BUILDING, "/usr/bin/podman", "run", "--network", "host", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
 		case BUILD_SUCCESS:
-			p.version += 1
-			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
-			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
+			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version+1), -1)
 			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PACKAGE_SUCCESS:
+			p.version += 1
+			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
+			projectEvent(map[string]interface{}{
+				"event":   "project/version",
+				"id":      p.id,
+				"version": p.version,
+			})
 			url := registryLogin(p.destination)
 			if len(url) > 0 {
 				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
@@ -429,6 +434,15 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		p.tag = params["tag"]
 		db.Exec(`UPDATE projects SET name = ?, source = ?, branch = ?, destination = ?, tag = ? WHERE id = ?`,
 			p.name, p.url, p.branch, p.destination, p.tag, p.id)
+		projectEvent(map[string]interface{}{
+			"event":       "project/update",
+			"id":          p.id,
+			"name":        p.name,
+			"url":         p.url,
+			"branch":      p.branch,
+			"destination": p.destination,
+			"tag":         p.tag,
+		})
 		redirect := params["redirect"]
 		if len(redirect) > 0 {
 			w.Header().Add("Location", redirect)
