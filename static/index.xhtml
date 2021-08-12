@@ -31,7 +31,7 @@
 				<button class="delete" aria-label="close" onclick="hideCreate()" type="reset"/>
 			</header>
 			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/index.xhtml"/>
+				<input type="hidden" name="redirect" value="/"/>
 				<div class="field">
 					<label class="label">Name</label>
 					<div class="control">
@@ -64,7 +64,9 @@
 				</div>
 			</section>
 			<footer class="modal-card-foot">
-				<button class="button is-success" type="submit">Create</button>
+				<span style="flex:1 1;"/>
+				<button class="button" onclick="hideCreate()" type="reset">Cancel</button>
+				<button class="button is-primary" type="submit">Create</button>
 			</footer>
 		</form>
 	</div>
@@ -76,7 +78,7 @@
 				<button class="delete" aria-label="close" onclick="hideUpload()" type="reset"/>
 			</header>
 			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/index.xhtml"/>
+				<input type="hidden" name="redirect" value="/"/>
 				<input type="hidden" name="id" id="upload_id" value=""/>
 				<div class="field">
 					<div class="file has-name">
@@ -98,7 +100,9 @@
 				</div>
 			</section>
 			<footer class="modal-card-foot">
-				<button class="button is-link" type="submit">Upload</button>
+				<span style="flex:1 1;"/>
+				<button class="button" onclick="hideUpload()" type="reset">Cancel</button>
+				<button class="button is-primary" type="submit">Upload</button>
 			</footer>
 		</form>
 	</div>
@@ -110,7 +114,7 @@
 				<button class="delete" aria-label="close" onclick="hideUpdate()" type="reset"/>
 			</header>
 			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/index.xhtml"/>
+				<input type="hidden" name="redirect" value="/"/>
 				<input type="hidden" name="id" id="update_id" value=""/>
 				<div class="field">
 					<label class="label">Name</label>
@@ -144,7 +148,9 @@
 				</div>
 			</section>
 			<footer class="modal-card-foot">
-				<button class="button is-link" type="submit">Update</button>
+				<span style="flex:1 1;"/>
+				<button class="button" onclick="hideUpdate()" type="reset">Cancel</button>
+				<button class="button is-primary" type="submit">Update</button>
 			</footer>
 		</form>
 	</div>
@@ -152,14 +158,17 @@
 		<div class="modal-background"/>
 		<div class="modal-card" style="width:80%;">
 			<header class="modal-card-head">
-				<p class="modal-card-title">Task Log</p>
+				<p class="modal-card-title">Task Log </p>
 				<button class="delete" aria-label="close" onclick="hideTaskLogs()"/>
 			</header>
 			<section class="modal-card-body" id="task_section">
-				<pre id="task_logs"/>
-				<span class="tag" id="task_status"/>
+				<pre id="task_logs" style="color:black;background:white;white-space:pre-wrap;"/>
 			</section>
-			<footer class="modal-card-foot"/>
+			<footer class="modal-card-foot">
+				<span class="tag is-medium" id="task_status"/>
+				<span style="flex:1 1;"/>
+				<button class="button is-primary" onclick="hideTaskLogs()" type="reset">Close</button>
+			</footer>
 		</div>
 	</div>
 	<div class="modal" id="registry">
@@ -170,7 +179,7 @@
 				<button class="delete" aria-label="close" onclick="hideRegistry()" type="reset"/>
 			</header>
 			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/index.xhtml"/>
+				<input type="hidden" name="redirect" value="/"/>
 				<div class="field">
 					<label class="label">Name</label>
 					<div class="control">
@@ -197,7 +206,9 @@
 				</div>
 			</section>
 			<footer class="modal-card-foot">
-				<button class="button is-success" type="submit">Create</button>
+				<span style="flex:1 1;"/>
+				<button class="button" onclick="hideRegistry()" type="reset">Cancel</button>
+				<button class="button is-primary" type="submit">Add/Update</button>
 			</footer>
 		</form>
 	</div>
@@ -292,11 +303,12 @@
 			var section = document.getElementById("task_section");
 			var tag = document.getElementById("task_status");
 			var logs = "";
+			container.innerHTML = "";
 			function fetchLogs() {
 				fetch(`/task/logs?id=${task}&amp;offset=${logs.length}`).then(response => {
 					var state = response.headers.get("X-Task-State");
 					tag.textContent = state;
-					tag.classList = "tag";
+					tag.classList = "tag is-medium";
 					switch (state) {
 					case "RUNNING":
 						tag.addClass("is-info");
