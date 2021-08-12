@@ -220,7 +220,7 @@ func projectRoutine(p *project) {
 		case PREPARE_SUCCESS:
 			p.taskCreate(PULLING, "/usr/bin/git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "pull", "--recurse-submodules")
 		case PULL_SUCCESS:
-			p.taskCreate(BUILDING, "/usr/bin/podman", "run", "--network", "host", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
+			p.taskCreate(BUILDING, "/usr/bin/podman", "run", "--network=host", "--rm=true", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
 		case BUILD_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version+1), -1)
 			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
