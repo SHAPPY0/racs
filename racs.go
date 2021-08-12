@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -74,6 +75,14 @@ type action struct {
 	args    []string
 }
 
+type registry struct {
+	name     string
+	url      string
+	user     string
+	password string
+	login    time.Time
+}
+
 type project struct {
 	id          int
 	name        string
@@ -95,6 +104,7 @@ type broker struct {
 }
 
 var db *sql.DB
+var registries = map[string]*registry{}
 var projects = map[int]*project{}
 var projectAbs, _ = filepath.Abs("projects")
 var clients = &broker{
@@ -104,16 +114,35 @@ var clients = &broker{
 	make(map[chan []byte]bool),
 }
 
+func registryCreate(name, url, user, password string) *registry {
+	db.Exec(`REPLACE INTO registries(name, url, user, password) VALUES(?, ?, ?, ?)`, name, url, user, password)
+	log.Printf("Registry created %s %s %s ******", name, url, user)
+	r := &registry{name, url, user, password, time.Unix(0, 0)}
+	registries[r.name] = r
+	return r
+}
+
+func registryLogin(name string) string {
+	r := registries[name]
+	if r == nil {
+		return ""
+	}
+	if time.Since(r.login).Hours() > 1 {
+		if len(r.user) > 0 {
+			exec.Command("podman", "login", r.url, "-u", r.user, "-p", r.password).Run()
+		}
+		r.login = time.Now()
+	}
+	return r.url
+}
+
 func (p *project) taskCreate(state state, command string, args ...string) {
 	log.Printf("taskCreate(%d, %s, %s, %v)", p.id, state, command, args)
 	p.queue <- action{state, command, args}
 }
 
 func projectEvent(event map[string]interface{}) {
-	bytes, err := json.Marshal(event)
-	if err != nil {
-		log.Fatal(err)
-	}
+	bytes, _ := json.Marshal(event)
 	clients.events <- bytes
 }
 
@@ -197,18 +226,21 @@ func projectRoutine(p *project) {
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PACKAGE_SUCCESS:
-			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
-			p.taskCreate(PUSHING, "/usr/bin/podman", "push", tag, fmt.Sprintf("%s/%s", p.destination, tag))
+			url := registryLogin(p.destination)
+			if len(url) > 0 {
+				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
+				p.taskCreate(PUSHING, "/usr/bin/podman", "push", tag, fmt.Sprintf("%s/%s", url, tag))
+			}
 		}
 		log.Printf("Project %d finished task %v", p.id, a)
 	}
 }
 
-func projectCreate(name string, url string, branch string, destination string, tag string) *project {
+func projectCreate(name, url, branch, destination, tag string) *project {
 	var id int
 	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, state, version)
 		VALUES(?, ?, ?, ?, ?, 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag).Scan(&id)
-	log.Printf("Project created %s %s %s %s\n", id, name, url, branch)
+	log.Printf("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
@@ -492,6 +524,23 @@ func handleTaskLogs(w http.ResponseWriter, r *http.Request) {
 	w.Write(bytes)
 }
 
+func handleRegistryCreate(w http.ResponseWriter, r *http.Request) {
+	params := getParams(r)
+	name := params["name"]
+	url := params["url"]
+	user := params["user"]
+	password := params["password"]
+	reg := registryCreate(name, url, user, password)
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(201)
+		w.Write([]byte(reg.name))
+	}
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
@@ -513,6 +562,12 @@ func main() {
 			passwd STRING,
 			salt STRING,
 			role STRING
+		)`,
+		`CREATE TABLE IF NOT EXISTS registries(
+			name STRING PRIMARY KEY,
+			url STRING,
+			user STRING,
+			password STRING
 		)`,
 		`CREATE TABLE IF NOT EXISTS projects(
 			id INTEGER PRIMARY KEY,
@@ -550,7 +605,16 @@ func main() {
 		states[state.String()] = state
 	}
 
-	rows, err := db.Query(`SELECT id, name, source, branch, destination, tag, state, version FROM projects`)
+	rows, err := db.Query(`SELECT name, url, user, password FROM registries`)
+	for rows.Next() {
+		var name string
+		var url string
+		var user string
+		var password string
+		rows.Scan(&name, &url, &user, &password)
+		registries[name] = &registry{name, url, user, password, time.Unix(0, 0)}
+	}
+	rows, err = db.Query(`SELECT id, name, source, branch, destination, tag, state, version FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -607,5 +671,6 @@ func main() {
 	http.HandleFunc("/project/upload", handleProjectUpload)
 	http.HandleFunc("/project/build", handleProjectBuild)
 	http.HandleFunc("/task/logs", handleTaskLogs)
+	http.HandleFunc("/registry/create", handleRegistryCreate)
 	http.ListenAndServe(":8081", nil)
 }
