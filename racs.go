@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -543,6 +544,10 @@ func handleRegistryCreate(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	var sslCert, sslKey string
+	flag.StringVar(&sslCert, "ssl-cert", "", "SSL cert")
+	flag.StringVar(&sslKey, "ssl-key", "", "SSL key")
+	flag.Parse()
 
 	var err error
 
@@ -672,5 +677,9 @@ func main() {
 	http.HandleFunc("/project/build", handleProjectBuild)
 	http.HandleFunc("/task/logs", handleTaskLogs)
 	http.HandleFunc("/registry/create", handleRegistryCreate)
-	http.ListenAndServe(":8081", nil)
+	if len(sslCert) > 0 {
+		log.Fatal(http.ListenAndServeTLS(":8081", sslCert, sslKey, nil))
+	} else {
+		log.Fatal(http.ListenAndServe(":8081", nil))
+	}
 }
