@@ -682,9 +682,12 @@ func main() {
 
 	go func() {
 		for {
-			time.Sleep(60 * time.Second)
 			log.Printf("Pruning images")
-			exec.Command("podman", "image", "prune", "-f")
+			err := exec.Command("podman", "image", "prune", "-f").Run()
+			if err != nil {
+				log.Print("Error", err)
+			}
+			time.Sleep(60 * time.Second)
 		}
 	}()
 
