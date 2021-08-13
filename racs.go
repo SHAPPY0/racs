@@ -222,8 +222,7 @@ func projectRoutine(p *project) {
 		case PULL_SUCCESS:
 			p.taskCreate(BUILDING, "/usr/bin/podman", "run", "--network=host", "--rm=true", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
 		case BUILD_SUCCESS:
-			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version+1), -1)
-			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", tag, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -235,7 +234,7 @@ func projectRoutine(p *project) {
 			url := registryLogin(p.destination)
 			if len(url) > 0 {
 				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
-				p.taskCreate(PUSHING, "/usr/bin/podman", "push", tag, fmt.Sprintf("%s/%s", url, tag))
+				p.taskCreate(PUSHING, "/usr/bin/podman", "push", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%s", url, tag))
 			}
 		}
 		log.Printf("Project %d finished task %v", p.id, a)
@@ -678,6 +677,14 @@ func main() {
 					client <- event
 				}
 			}
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(60 * time.Second)
+			log.Printf("Pruning images")
+			exec.Command("podman", "image", "prune", "-f")
 		}
 	}()
 
