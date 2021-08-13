@@ -1,3 +1,4 @@
+#!/usr/local/bin/minilang
 gir: glib("GLib")
 gir: soup("Soup")
 gir: gobject("GObject")
@@ -28,7 +29,9 @@ DB:execute('CREATE TABLE IF NOT EXISTS projects(
 DB:execute('CREATE TABLE IF NOT EXISTS tasks(
 	id INTEGER PRIMARY KEY,
 	project INTEGER,
-	type STRING
+	type STRING,
+	state STRING,
+	time STRING
 )')
 
 DB:execute('CREATE TABLE IF NOT EXISTS members(
@@ -49,66 +52,89 @@ end
 
 let Loop := glib::MainLoop::new(nil, nil)
 
-enum: state("status", [
-	"CLONING", "CLONE_SUCCESS", "CLONE_ERROR",
-	"PREPARING", "PREPARE_SUCCESS", "PREPARE_ERROR",
-	"PULLING", "PULL_SUCCESS", "PULL_ERROR",
-	"BUILDING", "BUILD_SUCCESS", "BUILD_ERROR",
-	"PACKAGING", "PACKAGE_SUCCESS", "PACKAGE_ERROR",
-	"PUSHING", "PUSH_SUCCESS", "PUSH_ERROR"
-])
-
 def Projects := {}
 def ProjectPath := glib::canonicalize_filename("projects", nil)
 
 let ProjectCreateStmt := DB:statement("INSERT INTO projects(name, source, branch, destination, tag, state, version) VALUES(?, ?, ?, ?, ?, 'CLONING', 0) RETURNING id")
+let ProjectRepoStmt := DB:statement("SELECT source, branch FROM projects WHERE id = ?")
 let ProjectUpdateStateStmt := DB:statement("UPDATE projects SET state = ? WHERE id = ?")
 let ProjectUpdateVersionStmt := DB:statement("UPDATE projects SET version = ? WHERE id = ?")
 
-class: project("project", :Id, :Name, :Destination, :Tag, :State, :Version, :Next, :Task)
+class: project(:Id, :Name, :Destination, :Tag, :State, :Version, :Tasks, :Next,
+	state is enum(
+		"CREATING", "CREATE_SUCCESS", "CREATE_ERROR",
+		"CLEANING", "CLEAN_SUCCESS", "CLEAN_ERROR",
+		"CLONING", "CLONE_SUCCESS", "CLONE_ERROR",
+		"PREPARING", "PREPARE_SUCCESS", "PREPARE_ERROR",
+		"PULLING", "PULL_SUCCESS", "PULL_ERROR",
+		"BUILDING", "BUILD_SUCCESS", "BUILD_ERROR",
+		"PACKAGING", "PACKAGE_SUCCESS", "PACKAGE_ERROR",
+		"PUSHING", "PUSH_SUCCESS", "PUSH_ERROR"
+	)
+)
 
 fun project_create(Name, URL, Branch, Destination, Tag) do
 	let Id := last(ProjectCreateStmt(Name, URL, Branch, Destination, Tag))[1]
 	log::info('Project created ', Id, ' ', Name, ' ', URL, ' ', Branch)
 	glib::mkdir_with_parents('{ProjectPath}/{Id}/context', 511)
 	glib::mkdir_with_parents('{ProjectPath}/{Id}/workspace', 511)
-	let Project := Projects[Id] := project(Id, Name, Destination, Tag, state::CLONING, 0, 0)
-	Project:task(state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
+	let Project := Projects[Id] := project(Id, Name, Destination, Tag, project::state::CLONING, 0, [])
+	Project:task(project::state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
 	ret Project
 end
 
 for (Id, Name, Destination, Tag, State, Version) in DB:execute("SELECT id, name, destination, tag, state, version FROM projects") do
-	Projects[Id] := project(Id, Name, Destination, Tag, state(State), Version, 0)
+	Projects[Id] := project(Id, Name, Destination, Tag, project::state(State), Version, [])
 end
 
 def TaskPath := glib::canonicalize_filename("tasks", nil)
-let TaskCreateStmt := DB:statement("INSERT INTO tasks(project, type) VALUES(?, ?) RETURNING id")
 
-meth :task(Project: project, State: state, Command: list[string]) do
+let TaskCreateStmt := DB:statement("INSERT INTO tasks(project, type, state, time) VALUES(?, ?, 'RUNNING', datetime('now')) RETURNING id")
+let TaskUpdateStmt := DB:statement("UPDATE tasks SET state = ? WHERE id = ?")
+
+class: task(:Id, :Type, :State,
+	state is enum("RUNNING", "SUCCESS", "ERROR")
+)
+
+for (ProjectId, Id, Type, State) in DB:execute("SELECT project, id, type, state FROM tasks WHERE time > datetime('now','-1 hour') ORDER BY id") do
+	let Project := Projects[ProjectId] or next
+	Project:Tasks:put(task(Id, Type, task::state(State)))
+end
+
+meth :task(Project: project, State: project::state, Command: list[string]) do
 	log::info('Task create ', Command)
 	let Id := last(TaskCreateStmt(Project:Id, string(State)))[1]
-	let TaskRoot := 'tasks/{Id}/'
-	glib::mkdir_with_parents(TaskRoot, 511)
-	let Out := glib::IOChannel::new_file('{TaskRoot}/out.log', "w")
-	let Err := glib::IOChannel::new_file('{TaskRoot}/err.log', "w")
-	log::info('Out = {Out:unix_get_fd}, Err = {Err:unix_get_fd}')
-	let (_, Pid) := glib::spawn_async_with_fds(nil, Command, [], glib::SpawnFlags::do_not_reap_child, nil, -1, Out:unix_get_fd, Err:unix_get_fd)
-	Out:shutdown(false)
-	Err:shutdown(false)
-	Project:State := State
-	Project:Task := Id
-	glib::child_watch_add(200, Pid; Pid, Status) do
-		log::info('Task complete ', Pid, ' ', Status)
-		glib::spawn_close_pid(Pid)
-		Project:State := state(old + if Status = 0 then 1 else 2 end)
+	with Task := task(Id, string(State), task::state::RUNNING) do
+		Project:Tasks:put(Task)
+		let TaskRoot := 'tasks/{Id}/'
+		glib::mkdir_with_parents(TaskRoot, 511)
+		let Out := glib::IOChannel::new_file('{TaskRoot}/out.log', "w")
+		let OutFd := Out:unix_get_fd
+		let (_, Pid) := glib::spawn_async_with_fds(nil, Command, nil, glib::SpawnFlags::do_not_reap_child, nil, -1, OutFd, OutFd)
+		Out:shutdown(false)
+		Project:State := State
+		glib::child_watch_add(200, Pid; Pid, Status) do
+			log::info('Task complete ', Pid, ' ', Status)
+			glib::spawn_close_pid(Pid)
+			if Status = 0 then
+				Project:State := project::state(old + 1)
+				Task:State := task::state::SUCCESS
+			else
+				Project:State := project::state(old + 2)
+				Task:State := task::state::ERROR
+			end
+			last(ProjectUpdateStateStmt(string(Project:State), Project:Id))
+			last(TaskUpdateStmt(string(Task:State), Task:Id))
+			replace(Project:Next, 0)(Project)
+		end
+	on Error do
+		log::error(Error)
+		Project:State := project::state(old + 2)
 		last(ProjectUpdateStateStmt(string(Project:State), Project:Id))
+		Task:State := task::state::ERROR
+		last(TaskUpdateStmt(string(Task:State), Task:Id))
 		replace(Project:Next, 0)(Project)
 	end
-on Error do
-	log::error(Error)
-	Project:State := state(old + 2)
-	last(ProjectUpdateStateStmt(string(Project:State), Project:Id))
-	replace(Project:Next, 0)(Project)
 end
 
 meth :build(Project: project) do
@@ -116,36 +142,46 @@ meth :build(Project: project) do
 	if Project:State % 3 = 1 then
 		ret Project:Next := :build
 	end
-	when Project:State
-	is state::CLONE_SUCCESS do
+	print('Project:State = {type(Project:State)}\n')
+	switch Project:State: project::state
+	case "CREATE_SUCCESS" do
 		Project:Next := :build
-		Project:task(state::PREPARING, ["/usr/bin/podman", "build", "--squash", "-f", '{ProjectPath}/{Project:Id}/BuildSpec', "-t", 'builder-{Project:Id}', '{ProjectPath}/{Project:Id}/context'])
+		Project:task(project::state::CLEANING, ["/usr/bin/rm", "-rfv", '{ProjectPath}/{Project:Id}/workspace/source'])
 		ret
-	is state::PREPARE_SUCCESS do
+	case "CLEAN_SUCCESS" do
 		Project:Next := :build
-		Project:task(state::PULLING, ["/usr/bin/git", "-C", '{ProjectPath}/{Project:Id}/workspace/source', "pull", "--recurse-submodules"])
+		let (URL, Branch) := last(ProjectRepoStmt(Project:Id))
+		Project:task(project::state::CLONING, ["/usr/bin/git", "clone", "-v", "--recursive", "-b", Branch, URL, '{ProjectPath}/{Project:Id}/workspace/source'])
 		ret
-	is state::PULL_SUCCESS do
+	case "CLONE_SUCCESS" do
 		Project:Next := :build
-		Project:task(state::BUILDING, ["/usr/bin/podman", "run", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--read-only", 'builder-{Project:Id}'])
-	is state::BUILD_SUCCESS do
+		Project:task(project::state::PREPARING, ["/usr/bin/podman", "build", "--squash", "-f", '{ProjectPath}/{Project:Id}/BuildSpec', "-t", 'builder-{Project:Id}', '{ProjectPath}/{Project:Id}/context'])
+		ret
+	case "PREPARE_SUCCESS" do
+		Project:Next := :build
+		Project:task(project::state::PULLING, ["/usr/bin/git", "-C", '{ProjectPath}/{Project:Id}/workspace/source', "pull", "--recurse-submodules"])
+		ret
+	case "PULL_SUCCESS" do
+		Project:Next := :build
+		Project:task(project::state::BUILDING, ["/usr/bin/podman", "run", "--network", "host", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--read-only", 'builder-{Project:Id}'])
+	case "BUILD_SUCCESS" do
 		Project:Next := :build
 		Project:Version := old + 1
 		last(ProjectUpdateVersionStmt(Project:Version, Project:Id))
 		let Tag := Project:Tag:replace("$VERSION", string(Project:Version))
-		Project:task(state::PACKAGING, ["/usr/bin/podman", "build", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--squash", "-f", '{ProjectPath}/{Project:Id}/PackageSpec', "-t", Tag, '{ProjectPath}/{Project:Id}/context'])
-	is state::PACKAGE_SUCCESS do
+		Project:task(project::state::PACKAGING, ["/usr/bin/podman", "build", "-v", '{ProjectPath}/{Project:Id}/workspace:/workspace', "--squash", "-f", '{ProjectPath}/{Project:Id}/PackageSpec', "-t", Tag, '{ProjectPath}/{Project:Id}/context'])
+	case "PACKAGE_SUCCESS" do
 		Project:Next := :build
 		let Tag := Project:Tag:replace("$VERSION", string(Project:Version))
-		Project:task(state::PUSHING, ["/usr/bin/podman", "push", Tag, '{Project:Destination}/{Tag}'])
+		Project:task(project::state::PUSHING, ["/usr/bin/podman", "push", Tag, '{Project:Destination}/{Tag}'])
 	end
 end
 
-meth :build_from(Project: project, State: state) do
+meth :build_from(Project: project, State: project::state) do
 	if Project:State % 3 = 1 then
 		Project:Next := :build_from(_, State)
 	elseif Project:State >= State then
-		Project:State := state(State - 2)
+		Project:State := project::state(State - 2)
 	end
 	Project:build
 end
@@ -181,7 +217,7 @@ with AuthDomain := soup::AuthDomainBasic(realm is "racs") do
 	Server:add_auth_domain(AuthDomain)
 end
 
-Server:listen_local(8081, nil)
+Server:listen_all(8081, nil)
 log::info("Server running on http://localhost:8081")
 
 Server:add_handler("/"; Server, Message, Path, Query, Client) do
@@ -248,6 +284,26 @@ Server:add_handler("/"; Server, Message, Path, Query, Client) do
 	Message:set_status(404)
 end
 
+fun get_params(Query, Message) do
+	if Query then ret Query end
+	let Headers := Message::"request-headers"
+	let ContentType := Headers:get_one("content-type"):lower
+	if ContentType:starts("application/json") then
+		ret json::decode(Message::"request-body-data":get_data[1])
+	elseif ContentType:starts("multipart/form-data") then
+		let Params := {}
+		let Multipart := soup::Multipart::new_from_message(Message::"request-headers", Message::"request-body")
+		for I in 0 .. (Multipart:get_length - 1) do
+			let (_, Headers, Body) := Multipart:get_part(I)
+			let Disposition := soup::header_parse_semi_param_list(Headers:get_one("content-disposition"):lower)
+			Params[Disposition["name"]] := Body:get_data[2]
+		end
+		ret Params
+	else
+		error("TypeError", 'Unsupported content type: {ContentType}')
+	end
+end
+
 Server:add_handler("/project/list"; Server, Message, Path, Query, Client) do
 	let User := Client:get_auth_user
 	log::info('Project List: User = {User}')
@@ -256,7 +312,11 @@ Server:add_handler("/project/list"; Server, Message, Path, Query, Client) do
 		"id" is Project:Id,
 		"name" is Project:Name,
 		"state" is string(Project:State),
-		"task" is Project:Task,
+		"tasks" is list(Project:Tasks; Task) {
+			"id" is Task:Id,
+			"type" is Task:Type,
+			"state" is string(Task:State)
+		},
 		"version" is Project:Version
 	}))
 on Error do
@@ -266,20 +326,17 @@ end
 
 Server:add_handler("/project/status"; Server, Message, Path, Query, Client) do
 	let User := Client:get_auth_user
-	let ContentType := Message::"request-headers":get_one("content-type"):lower
-	log::info('Path = ', Path)
-	log::info('Query = ', Query)
-	let Params := Query or when ContentType is "application/json" do
-		json::decode(Message::"request-body-data":get_data[1])
-	else
-		error("TypeError", "Unsupported content type")
-	end
+	let Params := get_params(Query, Message)
 	let Id := integer(Params["id"] or error("ParamError", "Missing parameter id"))
 	let Project := Projects[Id] or error("ParamError", "Invalid project")
 	Message:set_status(200)
 	Message:set_response("application/json", soup::MemoryUse::static, json::encode({
 		"state" is string(Project:State),
-		"task" is Project:Task,
+		"tasks" is list(Project:Tasks; Task) {
+			"id" is Task:Id,
+			"type" is Task:Type,
+			"state" is string(Task:State)
+		},
 		"version" is Project:Version
 	}))
 on Error do
@@ -289,12 +346,7 @@ end
 
 Server:add_handler("/project/create"; Server, Message, Path, Query, Client) do
 	let User := Client:get_auth_user
-	let Headers := Message::"request-headers"
-	let Params := when Headers:get_one("content-type"):lower is "application/json" do
-		json::decode(Message::"request-body-data":get_data[1])
-	else
-		error("TypeError", "Unsupported content type")
-	end
+	let Params := get_params(Query, Message)
 	let Name := Params["name"] or error("ParamError", "Missing parameter name")
 	let URL := Params["url"] or error("ParamError", "Missing parameter url")
 	let Branch := Params["branch"] or error("ParamError", "Missing parameter branch")
@@ -309,22 +361,7 @@ end
 
 Server:add_handler("/project/upload"; Server, Message, Path, Query, Client) do
 	let User := Client:get_auth_user
-	let Headers := Message::"request-headers"
-	let ContentType := Headers:get_one("content-type"):lower
-	let Params := if ContentType = "application/json" then
-		json::decode(Message::"request-body-data":get_data[1])
-	elseif ContentType:starts("multipart/form-data") then
-		let Params := {}
-		let Multipart := soup::Multipart::new_from_message(Message::"request-headers", Message::"request-body")
-		for I in 0 .. (Multipart:get_length - 1) do
-			let (_, Headers, Body) := Multipart:get_part(I)
-			let Disposition := soup::header_parse_semi_param_list(Headers:get_one("content-disposition"):lower)
-			Params[Disposition["name"]] := Body:get_data[2]
-		end
-		Params
-	else
-		error("TypeError", 'Unsupported content type: {ContentType}')
-	end
+	let Params := get_params(Query, Message)
 	let Id := integer(Params["id"] or error("ParamError", "Missing parameter id"))
 	let Name := Params["name"] or error("ParamError", "Missing parameter name")
 	let File := Params["file"] or error("ParamError", "Missing parameter file")
@@ -345,23 +382,36 @@ end
 
 Server:add_handler("/project/build"; Server, Message, Path, Query, Client) do
 	let User := Client:get_auth_user
-	let Headers := Message::"request-headers"
-	let Params := when Headers:get_one("content-type"):lower is "application/json" do
-		json::decode(Message::"request-body-data":get_data[1])
-	else
-		error("TypeError", "Unsupported content type")
-	end
+	let Params := get_params(Query, Message)
 	let Id := integer(Params["id"] or error("ParamError", "Missing parameter id"))
 	let Stage := Params["stage"] or error("ParamError", "Missing parameter stage")
 	let Project := Projects[Id] or error("ParamError", "Invalid project")
 	when Stage
-	is "prepare" do Project:build_from(state::PREPARING)
-	is "pull" do Project:build_from(state::PULLING)
-	is "build" do Project:build_from(state::BUILDING)
-	is "package" do Project:build_from(state::PACKAGING)
+	is "clean" do Project:build_from(project::state::CLEANING)
+	is "prepare" do Project:build_from(project::state::PREPARING)
+	is "pull" do Project:build_from(project::state::PULLING)
+	is "build" do Project:build_from(project::state::BUILDING)
+	is "package" do Project:build_from(project::state::PACKAGING)
 	else error("ParamError", "Invalid stage")
 	end
 	Message:set_redirect(303, '/project/status?id={Id}')
+on Error do
+	log::error(Error)
+	Message:set_status(500)
+end
+
+Server:add_handler("/task/logs"; Server, Message, Path, Query, Client) do
+	let User := Client:get_auth_user
+	let Params := get_params(Query, Message)
+	let Id := integer(Params["id"] or error("ParamError", "Missing parameter id"))
+	let Offset := integer(Params["offset"] or error("ParamError", "Missing parameter offset"))
+	let Channel := glib::IOChannel::new_file('tasks/{Id}/out.log', "r")
+	Channel:set_encoding(nil)
+	Channel:seek_position(Offset, glib::SeekType::set)
+	let (_, Content, Length) := Channel:read_to_end
+	Channel:close
+	Message:set_response("text/plain", soup::MemoryUse::static, Content)
+	Message:set_status(200)
 on Error do
 	log::error(Error)
 	Message:set_status(500)
