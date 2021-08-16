@@ -216,13 +216,13 @@ func projectRoutine(p *project) {
 			rows.Scan(&url, &branch)
 			p.taskCreate(CLONING, "/usr/bin/git", "clone", "-v", "--recursive", "-b", branch, url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id))
 		case CLONE_SUCCESS:
-			p.taskCreate(PREPARING, "/usr/bin/podman", "build", "--squash", "-f", fmt.Sprintf("%s/%d/BuildSpec", projectAbs, p.id), "-t", fmt.Sprintf("builder-%d", p.id), fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			p.taskCreate(PREPARING, "/usr/bin/podman", "build", "--squash-all", "-f", fmt.Sprintf("%s/%d/BuildSpec", projectAbs, p.id), "-t", fmt.Sprintf("builder-%d", p.id), fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PREPARE_SUCCESS:
 			p.taskCreate(PULLING, "/usr/bin/git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "pull", "--recurse-submodules")
 		case PULL_SUCCESS:
 			p.taskCreate(BUILDING, "/usr/bin/podman", "run", "--network=host", "--rm=true", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--read-only", fmt.Sprintf("builder-%d", p.id))
 		case BUILD_SUCCESS:
-			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			p.taskCreate(PACKAGING, "/usr/bin/podman", "build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash-all", "-f", fmt.Sprintf("%s/%d/PackageSpec", projectAbs, p.id), "-t", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -552,6 +552,12 @@ func handleRegistryCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(201)
 		w.Write([]byte(reg.name))
+	}
+}
+
+func authorizer(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
 	}
 }
 
