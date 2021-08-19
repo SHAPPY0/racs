@@ -223,21 +223,7 @@
 		</div>
 	</nav>
 	<div class="container">
-		<table class="table is-fullwidth">
-			<thead>
-				<tr>
-					<th>Id</th>
-					<th>Name</th>
-					<th>State</th>
-					<th>Task</th>
-					<th>Version</th>
-					<th>Upload</th>
-					<th>Update</th>
-					<th>Build</th>
-				</tr>
-			</thead>
-			<tbody id="projects"/>
-		</table>
+		<div class="columns is-multiline" id="projects"/>
 	</div>
 	<script type="text/javascript">
 		function build(event) {;
@@ -362,12 +348,12 @@
 				task = tasks[result.id] = {
 					state: create("span.tag")
 				}
+				var time = result.time.replace(" ", '\xa0');
 				project.tasks.appendChild(create("tr",
-					create("td", result.id.toString()),
+					create("td", create("a", {"on-click": showTaskLogs.bind(result)}, result.id.toString())),
 					create("td", result.type),
 					create("td", task.state),
-					create("td", result.time),
-					create("td", create("a", {"on-click": showTaskLogs.bind(result)}, "Logs"))
+					create("td", time)
 				));
 				while (project.tasks.children.length > 5) {
 					project.tasks.removeChild(project.tasks.firstChild);
@@ -393,32 +379,36 @@
 			if (!project) {
 				project = projects[result.id] = {
 					state: create("span.tag"),
-					tasks: create("table"),
+					tasks: create("table.table.is-narrow"),
 					version: create("span")
 				};
-				container.appendChild(create("tr",
-					create("td", result.id.toString()),
-					create("td", result.name),
-					create("td", project.state),
-					create("td", project.tasks),
-					create("td", project.version),
-					create("td",
-						create("button.button.is-small.is-link", {"on-click": showUpload.bind(result)}, "Upload"),
-					),
-					create("td",
-							create("button.button.is-small.is-link", {"on-click": showUpdate.bind(result)}, "Update"),
-						),
-					create("td",
-						create("div.select.is-small.is-primary",
-							create("select", {"on-change": build.bind(result)},
-								create("option", {value: ""}, "--- Stage ---"),
-								create("option", {value: "clean"}, "Clean"),
-								create("option", {value: "clone"}, "Clone"),
-								create("option", {value: "prepare"}, "Prepare"),
-								create("option", {value: "pull"}, "Pull"),
-								create("option", {value: "build"}, "Build"),
-								create("option", {value: "package"}, "Package"),
-								create("option", {value: "push"}, "Push")
+				container.appendChild(create("div.column",
+					create("div.card",
+						create("header.card-header", create("p.card-header-title.is-size-5.is-justify-content-space-between.has-text-link",
+							create("span", result.name, " #", result.id.toString()),
+							create("span", project.state)
+						)),
+						create("div.card-content", create("div.content",
+							create("p.has-text-weight-bold",
+								"Version:",
+								create("span.is-pulled-right", project.version)
+							),
+							project.tasks
+						)),
+						create("footer.card-footer",
+							create("button.button.is-inverted.is-link.card-footer-item", {"on-click": showUpload.bind(result)}, "Upload"),
+							create("button.button.is-inverted.is-link.card-footer-item", {"on-click": showUpdate.bind(result)}, "Update"),
+							create("div.select.is-link.card-footer-item",
+								create("select", {style: "border:none;", "on-change": build.bind(result)},
+									create("option", {value: "", style: "color:red;"}, "--- Build ---"),
+									create("option", {value: "clean"}, "Clean"),
+									create("option", {value: "clone"}, "Clone"),
+									create("option", {value: "prepare"}, "Prepare"),
+									create("option", {value: "pull"}, "Pull"),
+									create("option", {value: "build"}, "Build"),
+									create("option", {value: "package"}, "Package"),
+									create("option", {value: "push"}, "Push")
+								)
 							)
 						)
 					)
