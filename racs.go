@@ -329,7 +329,6 @@ func loadStatic(path string) ([]byte, error) {
 	if path == "." {
 		return nil, errors.New("Not found")
 	}
-	log.Printf("Serving %s%s", staticPath, path)
 	return ioutil.ReadFile(staticPath + path)
 }
 
@@ -404,7 +403,12 @@ func renderDenied(w http.ResponseWriter, path string, params map[string]string) 
 
 }
 
+var noLogin bool = false
+
 func checkLogin(u *user, role string, w http.ResponseWriter, path string, params map[string]string) bool {
+	if noLogin {
+		return false
+	}
 	for _, r := range u.Roles {
 		if r == role {
 			return false
@@ -415,10 +419,9 @@ func checkLogin(u *user, role string, w http.ResponseWriter, path string, params
 }
 
 func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	log.Print("params = ", params)
 	username := params["username"]
 	password := params["password"]
-	tr, err := pam.StartFunc("racs", username, func(s pam.Style, msg string) (string, error) {
+	tr, err := pam.StartFunc("sudo", username, func(s pam.Style, msg string) (string, error) {
 		log.Print("%v: %s", s, msg)
 		switch s {
 		case pam.PromptEchoOn:
@@ -871,6 +874,7 @@ func main() {
 	var sslCert, sslKey string
 	flag.StringVar(&sslCert, "ssl-cert", "", "SSL cert")
 	flag.StringVar(&sslKey, "ssl-key", "", "SSL key")
+	flag.BoolVar(&noLogin, "no-login", false, "Allow all actions without login")
 	flag.Parse()
 
 	key := make([]byte, 32)
