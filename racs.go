@@ -228,7 +228,7 @@ func projectRoutine(p *project) {
 			})
 			taskRoot := fmt.Sprintf("tasks/%d", id)
 			os.Mkdir(taskRoot, 0777)
-			log.Printf("task %s %v", command, args)
+			log.Printf("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
 			cmd.Stdout = out
@@ -422,7 +422,6 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 	username := params["username"]
 	password := params["password"]
 	tr, err := pam.StartFunc("sudo", username, func(s pam.Style, msg string) (string, error) {
-		log.Print("%v: %s", s, msg)
 		switch s {
 		case pam.PromptEchoOn:
 			return username, nil
@@ -438,9 +437,7 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 	if err != nil {
 		log.Print(err)
 	}
-	log.Print("tr = ", tr)
 	err = tr.Authenticate(0)
-	log.Print("tr = ", tr)
 	if err != nil {
 		log.Print("error = ", err)
 		w.WriteHeader(401)
@@ -453,7 +450,6 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 	nonce := make([]byte, nonceSize)
 	rand.Read(nonce)
 	in, _ := json.Marshal(u2)
-	log.Print("in = ", string(in))
 	en := gcm.Seal(nil, nonce, in, nil)
 	out := make([]byte, len(en)+nonceSize)
 	copy(out[:nonceSize], nonce)
@@ -464,7 +460,6 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 		Path:    "/",
 		Expires: time.Now().Add(24 * time.Hour),
 	}
-	log.Print("setting cookie ", cookie.String())
 	http.SetCookie(w, &cookie)
 	action := params["action"]
 	redirect := params["redirect"]
@@ -491,7 +486,6 @@ func handleUserLogout(w http.ResponseWriter, r *http.Request, u *user, params ma
 		Path:    "/",
 		Expires: time.Unix(0, 0),
 	}
-	log.Print("setting cookie ", cookie.String())
 	http.SetCookie(w, &cookie)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
@@ -610,7 +604,7 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 }
 
 func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	if checkLogin(u, "admin", w, "/project/update", params) {
+	if checkLogin(u, "admin", w, "/project/create", params) {
 		return
 	}
 	name := params["name"]
@@ -630,7 +624,7 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params
 }
 
 func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	if checkLogin(u, "admin", w, "/project/update", params) {
+	if checkLogin(u, "admin", w, "/project/upload", params) {
 		return
 	}
 	id, _ := strconv.Atoi(params["id"])
@@ -660,7 +654,7 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 }
 
 func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	if checkLogin(u, "admin", w, "/project/update", params) {
+	if checkLogin(u, "admin", w, "/project/triggers", params) {
 		return
 	}
 	pid, _ := strconv.Atoi(params["id"])
@@ -751,7 +745,7 @@ func handleTaskLogs(w http.ResponseWriter, r *http.Request, u *user, params map[
 }
 
 func handleRegistryCreate(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	if checkLogin(u, "admin", w, "/project/update", params) {
+	if checkLogin(u, "admin", w, "/registry/create", params) {
 		return
 	}
 	name := params["name"]
@@ -770,7 +764,6 @@ func handleRegistryCreate(w http.ResponseWriter, r *http.Request, u *user, param
 }
 
 func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, params map[string]string) bool {
-	log.Printf("%s: %v, %v", path, u, params)
 	switch path {
 	case "/user/current":
 		handleUserCurrent(w, r, u, params)
@@ -830,7 +823,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		u.Name = "user"
 	}
 	cookie, err := r.Cookie("RACS_TOKEN")
-	log.Print("token = ", cookie)
 	if cookie != nil {
 		b, _ := hex.DecodeString(cookie.Value)
 		gcm, _ := cipher.NewGCM(ciph)
@@ -839,7 +831,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		de, _ := gcm.Open(nil, nonce, in, nil)
 		json.Unmarshal(de, &u)
 	}
-	log.Print("user = ", u)
 	path := r.URL.Path
 	if handleAction(path, w, r, &u, params) {
 		return
@@ -1006,7 +997,6 @@ func main() {
 		rows.Scan(&pid, &tid, &stateName)
 		p := projects[pid]
 		t := projects[tid]
-		log.Printf("trigger %d -> %d[%s]", p.id, t.id, stateName)
 		if p != nil && t != nil {
 			p.triggers[t] = states[stateName]
 			switch states[stateName] {
