@@ -714,9 +714,6 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 }
 
 func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	if checkLogin(u, "admin", w, "/project/update", params) {
-		return
-	}
 	id, _ := strconv.Atoi(params["id"])
 	stage := params["stage"]
 	p := projects[id]
