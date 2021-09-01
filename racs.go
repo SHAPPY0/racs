@@ -829,6 +829,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	u := user{"", []string{}}
+	if noLogin {
+		u.Name = "user"
+	}
 	cookie, err := r.Cookie("RACS_TOKEN")
 	log.Print("token = ", cookie)
 	if cookie != nil {
