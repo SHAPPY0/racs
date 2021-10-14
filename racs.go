@@ -1026,7 +1026,7 @@ func main() {
 	go func() {
 		for {
 			log.Printf("Pruning images")
-			err := exec.Command("podman", "image", "prune", "-f").Run()
+			err := exec.Command("podman", "image", "prune", "-f", "--filter", "until=5m").Run()
 			if err != nil {
 				log.Print("Error", err)
 			}
