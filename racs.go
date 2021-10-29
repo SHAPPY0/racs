@@ -31,6 +31,9 @@ import (
 type state int
 
 const (
+	DELETING        state = -3
+	DELETE_ERROR    state = -2
+	DELETE_SUCCESS  state = -1
 	NONE            state = 0
 	CREATING        state = 1
 	CREATE_ERROR    state = 2
@@ -59,7 +62,9 @@ const (
 )
 
 func (s state) String() string {
-	return [25]string{"NONE",
+	return [28]string{
+		"DELETING", "DELETE_ERROR", "DELETE_SUCCESS",
+		"NONE",
 		"CREATING", "CREATE_ERROR", "CREATE_SUCCESS",
 		"CLEANING", "CLEAN_ERROR", "CLEAN_SUCCESS",
 		"CLONING", "CLONE_ERROR", "CLONE_SUCCESS",
@@ -68,7 +73,7 @@ func (s state) String() string {
 		"BUILDING", "BUILD_ERROR", "BUILD_SUCCESS",
 		"PACKAGING", "PACKAGE_ERROR", "PACKAGE_SUCCESS",
 		"PUSHING", "PUSH_ERROR", "PUSH_SUCCESS",
-	}[s]
+	}[s+3]
 }
 
 type task struct {
@@ -202,6 +207,9 @@ func projectRoutine(p *project) {
 				command = "/usr/bin/echo"
 				args = []string{"no destination"}
 			}
+		case DELETING:
+			command = "/usr/bin/rm"
+			args = []string{"-vrf", fmt.Sprintf("%s/%d", projectAbs, p.id)}
 		}
 		p.state = state
 		if len(command) > 0 {
@@ -226,7 +234,7 @@ func projectRoutine(p *project) {
 				"time":    t.time,
 				"state":   "RUNNING",
 			})
-			taskRoot := fmt.Sprintf("tasks/%d", id)
+			taskRoot := fmt.Sprintf("tasks/%d", t.id)
 			os.Mkdir(taskRoot, 0777)
 			log.Printf("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
@@ -242,7 +250,7 @@ func projectRoutine(p *project) {
 				p.state += 2
 			}
 			out.Close()
-			log.Printf("Task %d completed", id)
+			log.Printf("Task %d completed", t.id)
 			db.Exec(`UPDATE projects SET state = ? WHERE id = ?`, p.state.String(), p.id)
 			db.Exec(`UPDATE tasks SET state = ? WHERE id = ?`, t.state, t.id)
 			projectEvent(map[string]interface{}{
@@ -257,6 +265,7 @@ func projectRoutine(p *project) {
 				"state":   t.state,
 			})
 		}
+		log.Printf("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
 			p.buildFrom(CLEANING)
@@ -283,8 +292,12 @@ func projectRoutine(p *project) {
 			for p2, state2 := range p.triggers {
 				p2.buildFrom(state2)
 			}
+		case DELETE_SUCCESS:
+			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
+			db.Exec(`DELETE FROM tasks WHERE project = ?`, p.id)
+			delete(projects, p.id)
+			return
 		}
-		log.Printf("Project %d finished task %s", p.id, state.String())
 	}
 }
 
@@ -731,6 +744,22 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	w.Write([]byte("OK"))
 }
 
+func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	id, _ := strconv.Atoi(params["id"])
+	confirm := params["confirm"]
+	if confirm == "YES" {
+		projects[id].buildFrom(DELETING)
+	}
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(200)
+		w.Write([]byte("OK"))
+	}
+}
+
 func handleTaskLogs(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	id, _ := strconv.Atoi(params["id"])
 	var state string
@@ -787,6 +816,8 @@ func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, 
 		handleProjectUpload(w, r, u, params)
 	case "/project/build":
 		handleProjectBuild(w, r, u, params)
+	case "/project/delete":
+		handleProjectDelete(w, r, u, params)
 	case "/task/logs":
 		handleTaskLogs(w, r, u, params)
 	case "/registry/create":
@@ -863,9 +894,11 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	var sslCert, sslKey string
+	var port int
 	flag.StringVar(&sslCert, "ssl-cert", "", "SSL cert")
 	flag.StringVar(&sslKey, "ssl-key", "", "SSL key")
 	flag.BoolVar(&noLogin, "no-login", false, "Allow all actions without login")
+	flag.IntVar(&port, "port", 8080, "Web server port")
 	flag.Parse()
 
 	key := make([]byte, 32)
@@ -936,7 +969,7 @@ func main() {
 	}
 
 	states := make(map[string]state)
-	for state := NONE; state <= PUSH_SUCCESS; state += 1 {
+	for state := DELETING; state <= PUSH_SUCCESS; state += 1 {
 		states[state.String()] = state
 	}
 
@@ -1035,9 +1068,12 @@ func main() {
 	}()
 
 	http.HandleFunc("/", handleRoot)
+	endpoint := fmt.Sprintf(":%d", port)
 	if len(sslCert) > 0 {
-		log.Fatal(http.ListenAndServeTLS(":8081", sslCert, sslKey, nil))
+		log.Printf("Listening on https://0.0.0.0:%d", port)
+		log.Fatal(http.ListenAndServeTLS(endpoint, sslCert, sslKey, nil))
 	} else {
-		log.Fatal(http.ListenAndServe(":8081", nil))
+		log.Printf("Listening on http://0.0.0.0:%d", port)
+		log.Fatal(http.ListenAndServe(endpoint, nil))
 	}
 }

@@ -191,6 +191,30 @@
 			</footer>
 		</form>
 	</div>
+	<div class="modal" id="delete">
+		<div class="modal-background"/>
+		<form class="modal-card" action="/project/delete" method="POST">
+			<header class="modal-card-head">
+				<p class="modal-card-title">Delete Project</p>
+				<button class="delete" aria-label="close" onclick="hideDelete()" type="reset"/>
+			</header>
+			<section class="modal-card-body">
+				<input type="hidden" name="redirect" value="/"/>
+				<input type="hidden" name="id" id="delete_id" value=""/>
+				<div class="field">
+					<label class="label">Type "YES" to confirm</label>
+					<div class="control">
+						<input class="input" name="confirm" id="delete_confirm"/>
+					</div>
+				</div>
+			</section>
+			<footer class="modal-card-foot">
+				<span style="flex:1 1;"/>
+				<button class="button" onclick="hideDelete()" type="reset">Cancel</button>
+				<button class="button is-primary" type="submit">Delete</button>
+			</footer>
+		</form>
+	</div>
 	<div class="modal" id="task_log">
 		<div class="modal-background"/>
 		<div class="modal-card" style="width:80%;">
@@ -379,7 +403,8 @@
 			PULLING: "pull",
 			BUILDING: "build",
 			PACKAGING: "package",
-			PUSHING: "push"
+			PUSHING: "push",
+			DELETING: "delete"
 		};
 		
 		function showTriggers() {
@@ -436,6 +461,18 @@
 		
 		function hideTriggers() {
 			var modal = document.getElementById("triggers");
+			modal.removeClass("is-active");
+		}
+		
+		function showDelete() {
+			var modal = document.getElementById("delete");
+			modal.addClass("is-active");
+			document.getElementById("delete_id").value = this.id;
+			document.getElementById("delete_confirm").value = "";
+		}
+		
+		function hideDelete() {
+			var modal = document.getElementById("delete");
 			modal.removeClass("is-active");
 		}
 		
@@ -591,7 +628,8 @@
 					create("footer.card-footer",
 						create("button.button.card-footer-item", {"on-click": showUpload.bind(result)}, "Upload"),
 						create("button.button.card-footer-item", {"on-click": showUpdate.bind(result)}, "Settings"),
-						create("button.button.card-footer-item", {"on-click": showTriggers.bind(result)}, "Triggers")
+						create("button.button.card-footer-item", {"on-click": showTriggers.bind(result)}, "Triggers"),
+						create("button.button.is-danger.card-footer-item", {"on-click": showDelete.bind(result)}, "Delete")
 					)
 				));
 			}
