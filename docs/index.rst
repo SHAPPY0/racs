@@ -3,6 +3,9 @@
 Racs
 ====
 
+.. image:: screen1.png
+   :alt: Screenshot 1
+
 Overview
 --------
 
