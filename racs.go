@@ -239,6 +239,9 @@ func projectRoutine(p *project) {
 			log.Printf("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
+			out.WriteString("\u001B[1m")
+			out.WriteString(cmd.String())
+			out.WriteString("\u001B[0m\n")
 			cmd.Stdout = out
 			cmd.Stderr = out
 			err = cmd.Run()
@@ -909,6 +912,7 @@ func main() {
 
 	os.Mkdir("projects", 0777)
 	os.Mkdir("tasks", 0777)
+	os.Setenv("GIT_TERMINAL_PROMPT", "0")
 
 	db, err = sql.Open("sqlite3", "file:main.db?cache=shared")
 	if err != nil {
