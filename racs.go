@@ -285,17 +285,17 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			p.buildFrom(CLEANING, "")
+			p.buildFrom(CLEANING, trigger)
 		case CLEAN_SUCCESS:
-			p.buildFrom(CLONING, "")
+			p.buildFrom(CLONING, trigger)
 		case CLONE_SUCCESS:
-			p.buildFrom(PREPARING, "")
+			p.buildFrom(PREPARING, trigger)
 		case PREPARE_SUCCESS:
-			p.buildFrom(PULLING, "")
+			p.buildFrom(PULLING, trigger)
 		case PULL_SUCCESS:
-			p.buildFrom(BUILDING, "")
+			p.buildFrom(BUILDING, trigger)
 		case BUILD_SUCCESS:
-			p.buildFrom(PACKAGING, "")
+			p.buildFrom(PACKAGING, trigger)
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -304,7 +304,7 @@ func projectRoutine(p *project) {
 				"id":      p.id,
 				"version": p.version,
 			})
-			p.buildFrom(PUSHING, "")
+			p.buildFrom(PUSHING, trigger)
 		case PUSH_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			for p2, state2 := range p.triggers {
