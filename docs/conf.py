@@ -24,8 +24,7 @@ class FoldersDirective(Directive):
 			indent = match.start()
 			node = nodes.list_item()
 			text = line[match.end():]
-			print(line[match.end():])
-			if indent <= indents[-1]:
+			while indent <= indents[-1]:
 				stack.pop()
 				indents.pop()
 			stack[-1].append(node)
@@ -40,7 +39,6 @@ class FoldersDirective(Directive):
 				node.append(nodes.inline(text = '🖹 ' + text))
 				node['classes'].append('file')
 		return [block_quote]
-		
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -71,7 +69,7 @@ author = 'Raja Mukherji'
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = []
+extensions = ["sphinx_design"]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -103,6 +101,7 @@ html_static_path = ['_static']
 
 html_css_files = [
 	'css/custom.css',
+	"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/fontawesome.min.css"
 ]
 
 def setup(sphinx):

@@ -4,6 +4,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
 	<link rel="stylesheet" href="/bulma.min.css"/>
 	<link rel="stylesheet" href="/bulmaswatch.min.css"/>
+	<link rel="stylesheet" href="/css/all.min.css"/>
 	<script src="/lib.js" type="text/javascript"/>
 	<script src="/ansi_up.js" type="text/javascript"/>
 	<link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png"/>
@@ -72,148 +73,140 @@
 			</footer>
 		</form>
 	</div>
-	<div class="modal" id="upload">
+	<div class="modal" id="project_settings">
 		<div class="modal-background"/>
-		<form class="modal-card" action="/project/upload" method="POST" enctype="multipart/form-data">
+		<div class="modal-card">
 			<header class="modal-card-head">
-				<p class="modal-card-title">Create Project</p>
-				<button class="delete" aria-label="close" onclick="hideUpload()" type="reset"/>
+				<p class="modal-card-title">
+					<div class="tabs is-centered is-toggle">
+						<ul id="project_settings_tabs">
+							<li><a onclick="showSettingsTab(0)">Settings</a></li>
+							<li><a onclick="showSettingsTab(1)">Upload</a></li>
+							<li><a onclick="showSettingsTab(2)">Triggers</a></li>
+							<li><a onclick="showSettingsTab(3)">Delete</a></li>
+						</ul>
+					</div>
+				</p>
+				<button class="delete" aria-label="close" onclick="hideProjectSettings()" type="reset"/>
 			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<input type="hidden" name="id" id="upload_id" value=""/>
-				<div class="field">
-					<div class="file has-name">
-						<label class="file-label">
-							<input class="file-input" type="file" name="file" id="fileinput"/>
-							<span class="file-cta">
-								<span class="file-icon"><i class="fas fa-upload"/></span>
-								<span class="file-label">Choose a file...</span>
-							</span>
-							<span class="file-name" id="filename"/>
-						</label>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Name</label>
-					<div class="control">
-						<input class="input" name="name" id="uploadname"/>
-					</div>
-				</div>
-			</section>
-			<footer class="modal-card-foot">
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideUpload()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit">Upload</button>
-			</footer>
-		</form>
-	</div>
-	<div class="modal" id="update">
-		<div class="modal-background"/>
-		<form class="modal-card" action="/project/update" method="POST">
-			<header class="modal-card-head">
-				<p class="modal-card-title">Update Project</p>
-				<button class="delete" aria-label="close" onclick="hideUpdate()" type="reset"/>
-			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<input type="hidden" name="id" id="update_id" value=""/>
-				<div class="field">
-					<label class="label">Name</label>
-					<div class="control">
-						<input class="input" name="name" id="update_name"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">URL</label>
-					<div class="control">
-						<input class="input" name="url" id="update_url"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Branch</label>
-					<div class="control">
-						<input class="input" name="branch" id="update_branch"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Destination</label>
-					<div class="control">
-						<input class="input" name="destination" id="update_destination"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Tag</label>
-					<div class="control">
-						<input class="input" name="tag" id="update_tag"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">BuildSpec</label>
-					<div class="control">
-						<input class="input" name="buildSpec" id="update_buildSpec"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">PackageSpec</label>
-					<div class="control">
-						<input class="input" name="packageSpec" id="update_packageSpec"/>
-					</div>
-				</div>
-			</section>
-			<footer class="modal-card-foot">
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideUpdate()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit">Update</button>
-			</footer>
-		</form>
-	</div>
-	<div class="modal" id="triggers">
-		<div class="modal-background"/>
-		<form class="modal-card" action="/project/triggers" method="POST">
-			<header class="modal-card-head">
-				<p class="modal-card-title">Update Triggers</p>
-				<button class="delete" aria-label="close" onclick="hideTriggers()" type="reset"/>
-			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<input type="hidden" name="id" id="trigger_id" value=""/>
-				<input type="hidden" name="triggers" id="trigger_triggers" value=""/>
-				<table class="table is-fullwidth">
-					<tbody id="trigger_table"/>
-				</table>
-			</section>
-			<footer class="modal-card-foot">
-				<span class="button is-info" onclick="addTrigger()">Add Trigger</span>
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideTriggers()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit" onclick="submitTriggers()">Update</button>
-			</footer>
-		</form>
-	</div>
-	<div class="modal" id="delete">
-		<div class="modal-background"/>
-		<form class="modal-card" action="/project/delete" method="POST">
-			<header class="modal-card-head">
-				<p class="modal-card-title">Delete Project</p>
-				<button class="delete" aria-label="close" onclick="hideDelete()" type="reset"/>
-			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<input type="hidden" name="id" id="delete_id" value=""/>
-				<div class="field">
-					<label class="label">Type "YES" to confirm</label>
-					<div class="control">
-						<input class="input" name="confirm" id="delete_confirm"/>
-					</div>
-				</div>
-			</section>
-			<footer class="modal-card-foot">
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideDelete()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit">Delete</button>
-			</footer>
-		</form>
+			<div id="project_settings_container">
+				<form action="/project/update" method="POST">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="update_id" value=""/>
+						<div class="field">
+							<label class="label">Name</label>
+							<div class="control">
+								<input class="input" name="name" id="update_name"/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">URL</label>
+							<div class="control">
+								<input class="input" name="url" id="update_url"/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">Branch</label>
+							<div class="control">
+								<input class="input" name="branch" id="update_branch"/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">Destination</label>
+							<div class="control">
+								<input class="input" name="destination" id="update_destination"/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">Tag</label>
+							<div class="control">
+								<input class="input" name="tag" id="update_tag"/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">BuildSpec</label>
+							<div class="control">
+								<input class="input" name="buildSpec" id="update_buildSpec"/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">PackageSpec</label>
+							<div class="control">
+								<input class="input" name="packageSpec" id="update_packageSpec"/>
+							</div>
+						</div>
+					</section>
+					<footer class="modal-card-foot">
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-primary" type="submit">Update</button>
+					</footer>
+				</form>
+				<form action="/project/upload" method="POST" enctype="multipart/form-data">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="upload_id" value=""/>
+						<div class="field">
+							<div class="file has-name">
+								<label class="file-label">
+									<input class="file-input" type="file" name="file" id="fileinput"/>
+									<span class="file-cta">
+										<span class="file-icon"><i class="fas fa-upload"/></span>
+										<span class="file-label">Choose a file...</span>
+									</span>
+									<span class="file-name" id="filename"/>
+								</label>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">Name</label>
+							<div class="control">
+								<input class="input" name="name" id="uploadname"/>
+							</div>
+						</div>
+					</section>
+					<footer class="modal-card-foot">
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-primary" type="submit">Upload</button>
+					</footer>
+				</form>
+				<form action="/project/triggers" method="POST">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="trigger_id" value=""/>
+						<input type="hidden" name="triggers" id="trigger_triggers" value=""/>
+						<table class="table is-fullwidth">
+							<tbody id="trigger_table"/>
+						</table>
+					</section>
+					<footer class="modal-card-foot">
+						<span class="button is-info" onclick="addTrigger()">Add Trigger</span>
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-primary" type="submit" onclick="submitTriggers()">Update</button>
+					</footer>
+				</form>
+				<form action="/project/delete" method="POST">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="delete_id" value=""/>
+						<div class="field">
+							<label class="label">Type "YES" to confirm</label>
+							<div class="control">
+								<input class="input" name="confirm" id="delete_confirm"/>
+							</div>
+						</div>
+					</section>
+					<footer class="modal-card-foot">
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-danger" type="submit">Delete</button>
+					</footer>
+				</form>
+			</div>
+		</div>
 	</div>
 	<div class="modal" id="task_log">
 		<div class="modal-background"/>
@@ -321,7 +314,7 @@
 		<div class="navbar-brand">
 			<a class="navbar-item" href="/">
 				<img src="/favicon-96x96.png"/>
-				<span class="is-size-4 ml-2 has-text-primary has-text-weight-bold is-family-code">RACS</span>
+				<span class="is-size-4 ml-2 has-text-info has-text-weight-bold is-family-code">RACS</span>
 			</a>
 		</div>
 		<div class="navbar-end">
@@ -339,7 +332,7 @@
 			</div>
 		</div>
 	</nav>
-	<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(500px, 1fr)); grid-auto-rows: 1fr;" id="projects"/>
+	<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(800px, 1fr)); grid-auto-rows: 1fr;" id="projects"/>
 	<script type="text/javascript">
 		function build(event) {;
 			var stage = event.target.value;
@@ -366,34 +359,16 @@
 			var modal = document.getElementById("create");
 			modal.removeClass("is-active");
 		}
-		
-		function showUpload() {
-			var modal = document.getElementById("upload");
-			modal.addClass("is-active");
-			document.getElementById("upload_id").value = this.id;
-		}
-		
-		function hideUpload() {
-			var modal = document.getElementById("upload");
-			modal.removeClass("is-active");
-		}
-		
-		function showUpdate() {
-			var modal = document.getElementById("update");
-			modal.addClass("is-active");
-			document.getElementById("update_id").value = this.id;
-			document.getElementById("update_name").value = this.name;
-			document.getElementById("update_url").value = this.url;
-			document.getElementById("update_branch").value = this.branch;
-			document.getElementById("update_destination").value = this.destination;
-			document.getElementById("update_tag").value = this.tag;
-			document.getElementById("update_buildSpec").value = this.buildSpec;
-			document.getElementById("update_packageSpec").value = this.packageSpec;
-		}
-		
-		function hideUpdate() {
-			var modal = document.getElementById("update");
-			modal.removeClass("is-active");
+
+		function showSettingsTab(index) {
+			var tabs = document.getElementById("project_settings_tabs");
+			var container = document.getElementById("project_settings_container");
+			for (var i = 0; i &lt; 4; ++i) {
+				tabs.children[i].removeClass("is-active");
+				container.children[i].style.display = "none";
+			}
+			tabs.children[index].addClass("is-active");
+			container.children[index].style.display = null;
 		}
 		
 		var stages = {
@@ -407,15 +382,32 @@
 			DELETING: "delete"
 		};
 		
-		function showTriggers() {
-			var modal = document.getElementById("triggers");
-			modal.addClass("is-active");
+		function showProjectSettings() {
+			document.getElementById("update_id").value = this.id;
+			document.getElementById("update_name").value = this.name;
+			document.getElementById("update_url").value = this.url;
+			document.getElementById("update_branch").value = this.branch;
+			document.getElementById("update_destination").value = this.destination;
+			document.getElementById("update_tag").value = this.tag;
+			document.getElementById("update_buildSpec").value = this.buildSpec;
+			document.getElementById("update_packageSpec").value = this.packageSpec;
+			document.getElementById("upload_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			var triggers = document.getElementById("trigger_table");
 			while (triggers.firstChild) triggers.removeChild(triggers.firstChild);
 			this.triggers.forEach(trigger => {
 				addTrigger(trigger[0].toString(), stages[trigger[1]] || "none");
 			});
+			document.getElementById("delete_id").value = this.id;
+			document.getElementById("delete_confirm").value = "";
+			var modal = document.getElementById("project_settings");
+			modal.addClass("is-active");
+			showSettingsTab(0);
+		}
+
+		function hideProjectSettings() {
+			var modal = document.getElementById("project_settings");
+			modal.removeClass("is-active");
 		}
 		
 		function addTrigger(target, stage) {
@@ -461,18 +453,6 @@
 		
 		function hideTriggers() {
 			var modal = document.getElementById("triggers");
-			modal.removeClass("is-active");
-		}
-		
-		function showDelete() {
-			var modal = document.getElementById("delete");
-			modal.addClass("is-active");
-			document.getElementById("delete_id").value = this.id;
-			document.getElementById("delete_confirm").value = "";
-		}
-		
-		function hideDelete() {
-			var modal = document.getElementById("delete");
 			modal.removeClass("is-active");
 		}
 		
@@ -561,31 +541,37 @@
 		function updateTask(project, result) {
 			var task = tasks[result.id];
 			if (!task) {
-				task = tasks[result.id] = {
-					state: create("span.tag")
-				}
-				var time = result.time.replace(" ", '\xa0');
-				project.tasks.appendChild(create("tr",
-					create("td", create("a", {"on-click": showTaskLogs.bind(result)}, result.id.toString())),
-					create("td", result.type),
-					create("td", task.state),
-					create("td", time)
-				));
+				task = tasks[result.id] = {};
+				task.icon = create("i");
+				task.state = create("span.icon", task.icon);
+				var time = result.time.split(" ");
+				task.box = create("div", {
+					style: "display: inline-block;",
+					"on-click": showTaskLogs.bind(result)
+				},
+					create("div.mb-2", task.state, " ", create("span", result.type)),
+					create("div", time[0], " ", time[1]),
+				);
+				project.tasks.appendChild(task.box);
 				while (project.tasks.children.length > 5) {
 					project.tasks.removeChild(project.tasks.firstChild);
 				}
 			}
-			task.state.textContent = result.state;
-			task.state.classList = "tag";
+			task.icon.classList = "fas";
+			task.box.classList = "notification mb-0 ml-2 p-2";
 			switch (result.state) {
 			case "RUNNING":
-				task.state.addClass("is-info");
+				task.box.addClass("is-info");
+				task.icon.addClass("fa-spinner");
+				task.icon.addClass("fa-spin");
 				break;
 			case "SUCCESS":
-				task.state.addClass("is-success");
+				task.box.addClass("is-success");
+				task.icon.addClass("fa-check-square");
 				break;
 			case "ERROR":
-				task.state.addClass("is-danger");
+				task.box.addClass("is-danger");
+				task.icon.addClass("fa-exclamation-triangle");
 				break;
 			}
 		}
@@ -595,41 +581,40 @@
 			if (!project) {
 				project = projects[result.id] = {
 					state: create("span.tag"),
-					tasks: create("table.table.is-narrow"),
+					tasks: create("div", {style: "white-space: nowrap; overflow: auto;"}),
 					version: create("span")
 				};
 				project.name = result.name;
-				container.appendChild(create("div.card.m-4",
-					create("header.card-header", create("p.card-header-title.is-size-5.is-justify-content-space-between.has-text-link",
-						create("span.has-text-white", result.name, " #", result.id.toString()),
-						create("span", project.state)
-					)),
-					create("div.card-content", create("div.content",
-						create("p.has-text-weight-bold",
-							"Version: ",
-							project.version,
-							create("span.is-pulled-right",
-								create("div.select.is-small.is-primary",
-									create("select", {"on-change": build.bind(result)},
-										create("option", {value: "", style: "color:red;"}, "--- Build ---"),
-										create("option", {value: "clean"}, "Clean"),
-										create("option", {value: "clone"}, "Clone"),
-										create("option", {value: "prepare"}, "Prepare"),
-										create("option", {value: "pull"}, "Pull"),
-										create("option", {value: "build"}, "Build"),
-										create("option", {value: "package"}, "Package"),
-										create("option", {value: "push"}, "Push")
-									)
-								)
+				var buildMenu = create("span.select.is-small.is-primary",
+					{style: "margin-bottom: 0.5rem"},
+					create("select", {"on-change": build.bind(result)},
+						create("option", {value: "", style: "color:red;"}, "--- Build ---"),
+						create("option", {value: "clean"}, "Clean"),
+						create("option", {value: "clone"}, "Clone"),
+						create("option", {value: "prepare"}, "Prepare"),
+						create("option", {value: "pull"}, "Pull"),
+						create("option", {value: "build"}, "Build"),
+						create("option", {value: "package"}, "Package"),
+						create("option", {value: "push"}, "Push")
+					)
+				);
+				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
+					create("span.is-flex-grow-1", {style: "display:inline-block"},
+						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name),
+						create("div",
+							buildMenu,
+							" ",
+							create("button.button.is-small", {"on-click": showProjectSettings.bind(result)},
+								create("span.icon", create("i.fas.fa-tools"))
 							)
-						),
+						)
+					),
+					create("span", {style: "display:inline-block"},
+						create("div", "Version"),
+						create("span.tag.is-success.is-large", project.version)
+					),
+					create("span", {style: "display:inline-block"},
 						project.tasks
-					)),
-					create("footer.card-footer",
-						create("button.button.card-footer-item", {"on-click": showUpload.bind(result)}, "Upload"),
-						create("button.button.card-footer-item", {"on-click": showUpdate.bind(result)}, "Settings"),
-						create("button.button.card-footer-item", {"on-click": showTriggers.bind(result)}, "Triggers"),
-						create("button.button.is-danger.card-footer-item", {"on-click": showDelete.bind(result)}, "Delete")
 					)
 				));
 			}
