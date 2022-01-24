@@ -50,6 +50,16 @@ The result ``racs`` executable should then be run in the desired directory:
    $ cd /path/to/projects
    $ /path/to/racs -port 8080 -ssl-cert ssl.crt -ssl-key ssl.key -no-login true
 
+Options
+-------
+
+:-port <num>: Sets the port number for the web server, defaults to 8080.
+:-no-login: Allows users to perform all operations without logging in.
+:-ssl-cert: Uses HTTPS instead of HTTP, with the provided SSL cert file.
+:-ssl-key: The SSL key file to use.
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+   
+   /usage

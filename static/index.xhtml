@@ -332,9 +332,7 @@
 			</div>
 		</div>
 	</nav>
-	<table class="table is-fullwidth">
-		<tbody id="projects"/>
-	</table>
+	<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(800px, 1fr)); grid-auto-rows: 1fr;" id="projects"/>
 	<script type="text/javascript">
 		function build(event) {;
 			var stage = event.target.value;
@@ -600,9 +598,9 @@
 						create("option", {value: "push"}, "Push")
 					)
 				);
-				container.appendChild(create("tr",
-					create("th",
-						create("div.mb-2", "#" + result.id + " " + result.name),
+				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
+					create("span.is-flex-grow-1", {style: "display:inline-block"},
+						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name),
 						create("div",
 							buildMenu,
 							" ",
@@ -611,8 +609,13 @@
 							)
 						)
 					),
-					create("td", create("div", "Version"), create("span.tag.is-success.is-large", project.version)),
-					create("td", project.tasks),
+					create("span", {style: "display:inline-block"},
+						create("div", "Version"),
+						create("span.tag.is-success.is-large", project.version)
+					),
+					create("span", {style: "display:inline-block"},
+						project.tasks
+					)
 				));
 			}
 			for (var key in result) {
