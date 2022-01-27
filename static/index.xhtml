@@ -25,7 +25,7 @@
 	<meta name="msapplication-TileImage" content="/ms-icon-144x144.png"/>
 	<meta name="theme-color" content="#ffffff"/>
 </head>
-<body>
+<body class="has-background-warning-light" style="min-height:100vh;padding:0;">
 	<div class="modal" id="create">
 		<div class="modal-background"/>
 		<form class="modal-card" action="/project/create" method="POST">
@@ -332,7 +332,7 @@
 			</div>
 		</div>
 	</nav>
-	<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(800px, 1fr)); grid-auto-rows: 1fr;" id="projects"/>
+	<div style="display:flex;flex-wrap:wrap;" id="projects"/>
 	<script type="text/javascript">
 		function build(event) {;
 			var stage = event.target.value;
@@ -598,7 +598,7 @@
 						create("option", {value: "push"}, "Push")
 					)
 				);
-				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
+				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap.is-flex-grow-1",
 					create("span.is-flex-grow-1", {style: "display:inline-block"},
 						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name),
 						create("div",
