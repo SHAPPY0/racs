@@ -598,7 +598,8 @@
 						create("option", {value: "push"}, "Push")
 					)
 				);
-				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap.is-flex-grow-1",
+				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
+					{style: "flex-grow: 1; flex-basis: 0;"},
 					create("span.is-flex-grow-1", {style: "display:inline-block"},
 						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name),
 						create("div",
