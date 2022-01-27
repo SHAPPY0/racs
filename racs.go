@@ -180,13 +180,13 @@ func projectRoutine(p *project) {
 		args := []string{}
 		switch state {
 		case CLEANING:
-			command = "/usr/bin/rm"
+			command = "rm"
 			args = []string{"-rfv", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id)}
 		case CLONING:
-			command = "/usr/bin/git"
+			command = "git"
 			args = []string{"clone", "-v", "--recursive", "-b", p.branch, p.url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id)}
 		case PREPARING:
-			command = "/usr/bin/podman"
+			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
 			args = []string{"build", "--squash-all", "-f", spec, "-t", fmt.Sprintf("builder-%d", p.id)}
 			if p.prepareDep != nil {
@@ -194,17 +194,17 @@ func projectRoutine(p *project) {
 			}
 			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PULLING:
-			command = "/usr/bin/git"
+			command = "git"
 			args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "pull", "--recurse-submodules"}
 		case BUILDING:
-			command = "/usr/bin/podman"
+			command = "podman"
 			args = []string{"run", "--network=host", "--rm=true",
 				"-e", fmt.Sprintf("RACS_TRIGGER=%s", trigger),
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--read-only", fmt.Sprintf("builder-%d", p.id),
 			}
 		case PACKAGING:
-			command = "/usr/bin/podman"
+			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
 			args = []string{"build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", spec, "-t", fmt.Sprintf("project-%d", p.id)}
 			if p.packageDep != nil {
@@ -215,14 +215,14 @@ func projectRoutine(p *project) {
 			url := registryLogin(p.destination)
 			if len(url) > 0 {
 				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
-				command = "/usr/bin/podman"
+				command = "podman"
 				args = []string{"push", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%s", url, tag)}
 			} else {
-				command = "/usr/bin/echo"
+				command = "echo"
 				args = []string{"no destination"}
 			}
 		case DELETING:
-			command = "/usr/bin/rm"
+			command = "rm"
 			args = []string{"-vrf", fmt.Sprintf("%s/%d", projectAbs, p.id)}
 		}
 		p.state = state
