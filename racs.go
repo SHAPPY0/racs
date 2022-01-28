@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -108,6 +110,7 @@ type project struct {
 	tag         string
 	buildSpec   string
 	packageSpec string
+	buildHash   []byte
 	state       state
 	version     int
 	tasks       []*task
@@ -293,7 +296,23 @@ func projectRoutine(p *project) {
 		case PREPARE_SUCCESS:
 			p.buildFrom(PULLING, trigger)
 		case PULL_SUCCESS:
-			p.buildFrom(BUILDING, trigger)
+			buildHash := []byte{}
+			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
+			if err == nil {
+				h := sha256.New()
+				io.Copy(h, f)
+				f.Close()
+				buildHash = h.Sum(nil)
+			} else {
+				logger.Warn(err)
+			}
+			if !bytes.Equal(buildHash, p.buildHash) {
+				p.buildHash = buildHash
+				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
+				p.buildFrom(PREPARING, trigger)
+			} else {
+				p.buildFrom(BUILDING, trigger)
+			}
 		case BUILD_SUCCESS:
 			p.buildFrom(PACKAGING, trigger)
 		case PACKAGE_SUCCESS:
@@ -328,7 +347,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, url, branch, destination, tag, "BuildSpec", "PackageSpec",
+		id, name, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
 		CREATE_SUCCESS, 0,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
@@ -971,6 +990,7 @@ func main() {
 			state STRING,
 			version INTEGER
 		)`,
+		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -991,10 +1011,7 @@ func main() {
 	}
 
 	for _, stat := range stats {
-		_, err := db.Exec(stat)
-		if err != nil {
-			logger.Errorf("%q: %s\n", err, stat)
-		}
+		db.Exec(stat)
 	}
 
 	states := make(map[string]state)
@@ -1011,7 +1028,7 @@ func main() {
 		rows.Scan(&name, &url, &user, &password)
 		registries[name] = &registry{name, url, user, password, time.Unix(0, 0)}
 	}
-	rows, err = db.Query(`SELECT id, name, source, branch, destination, tag, buildSpec, packageSpec, state, version FROM projects`)
+	rows, err = db.Query(`SELECT id, name, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1021,11 +1038,12 @@ func main() {
 		var tag string
 		var buildSpec string
 		var packageSpec string
+		var buildHash []byte
 		var stateName string
 		var version int
-		rows.Scan(&id, &name, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &stateName, &version)
+		rows.Scan(&id, &name, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version)
 		p := &project{
-			id, name, source, branch, destination, tag, buildSpec, packageSpec,
+			id, name, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
 			states[stateName], version,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
