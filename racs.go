@@ -176,9 +176,6 @@ func projectRoutine(p *project) {
 		state := request.state
 		trigger := request.trigger
 		logger.Infof("Project %d received task %s", p.id, state.String())
-		if p.state < state-1 {
-			continue
-		}
 		command := ""
 		args := []string{}
 		switch state {
