@@ -671,9 +671,51 @@
 			}
 		}
 		
+		var events = null;
+		var fetchInterval = setInterval(fetchProjects, 1000);
+		fetchProjects();
+
+		function connectEvents() {
+			events = new EventSource("/project/events");
+			events.onopen = function() {
+				console.log("Events opened, clearing interval");
+				if (fetchInterval !== null) {
+					clearInterval(fetchInterval);
+					fetchInterval = null;
+				}
+			}
+			events.onmessage = function(e) {
+				var event = JSON.parse(e.data);
+				console.log(event);
+				switch (event.event) {
+				case "project/list":
+					event.projects.forEach(updateProject);
+					break;
+				case "project/create":
+				case "project/state":
+				case "project/version":
+					updateProject(event);
+					break;
+				case "task/create":
+				case "task/state": {
+					var project = projects[event.project];
+					if (project) updateTask(project, event);
+					break;
+				}
+				}
+			}
+			events.onerror = function() {
+				events = null;
+				if (fetchInterval === null) {
+					fetchInterval = setInterval(fetchProjects, 1000);
+				}
+			}
+		}
+		
 		function fetchProjects() {
 			fetch("/project/list").then(response => response.json()).then(results => {
 				results.forEach(updateProject);
+				if (events === null) connectEvents();
 			});
 		}
 		
@@ -689,33 +731,6 @@
 				outActions.style.display = null;
 			}
 		});
-		fetchProjects();
-		var fetchInterval = setInterval(fetchProjects, 1000);
-		var events = new EventSource("/project/events");
-		events.onopen = function() {
-			console.log("Events opened, clearing interval");
-			clearInterval(fetchInterval);
-		}
-		events.onmessage = function(e) {
-			var event = JSON.parse(e.data);
-			console.log(event);
-			switch (event.event) {
-			case "project/list":
-				event.projects.forEach(updateProject);
-				break;
-			case "project/create":
-			case "project/state":
-			case "project/version":
-				updateProject(event);
-				break;
-			case "task/create":
-			case "task/state": {
-				var project = projects[event.project];
-				if (project) updateTask(project, event);
-				break;
-			}
-			}
-		}
 	</script>
 </body>
 </html>

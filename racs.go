@@ -881,6 +881,7 @@ func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, 
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, r.URL.Path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
 	if strings.HasPrefix(contentType, "application/json") {
