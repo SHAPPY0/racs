@@ -672,12 +672,20 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params
 
 func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	if r.MultipartForm != nil {
-		file := r.MultipartForm.File["file"][0]
+		files := r.MultipartForm.File["file"]
+		if (files != nil) && (len(files) > 0) {
+			file := files[0]
+			temp, _ := ioutil.TempFile("uploads", "upload-")
+			rd, _ := file.Open()
+			io.Copy(temp, rd)
+			temp.Close()
+			rd.Close()
+			params["upload"] = temp.Name()
+		}
+	} else if params["value"] != "" {
 		temp, _ := ioutil.TempFile("uploads", "upload-")
-		rd, _ := file.Open()
-		io.Copy(temp, rd)
+		temp.WriteString(params["value"])
 		temp.Close()
-		rd.Close()
 		params["upload"] = temp.Name()
 	}
 	if checkLogin(u, "admin", w, "/project/upload", params) {
