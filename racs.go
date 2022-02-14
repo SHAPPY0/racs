@@ -682,7 +682,8 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 			rd.Close()
 			params["upload"] = temp.Name()
 		}
-	} else if params["value"] != "" {
+	}
+	if params["value"] != "" {
 		temp, _ := ioutil.TempFile("uploads", "upload-")
 		temp.WriteString(params["value"])
 		temp.Close()
