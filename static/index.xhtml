@@ -572,7 +572,7 @@
 				task.state = create("span.icon", task.icon);
 				var time = result.time.split(" ");
 				task.box = create("div", {
-					style: "display: inline-block;",
+					style: "display: inline-block; border: 2px solid;",
 					"on-click": showTaskLogs.bind(result)
 				},
 					create("div.mb-2", task.state, " ", create("span", result.type)),
@@ -584,7 +584,7 @@
 				}
 			}
 			task.icon.classList = "fas";
-			task.box.classList = "notification mb-0 ml-2 p-2";
+			task.box.classList = "notification mb-0 ml-2 p-2 is-light";
 			switch (result.state) {
 			case "RUNNING":
 				task.box.addClass("is-info");
@@ -636,9 +636,9 @@
 							)
 						)
 					),
-					create("span", {style: "display:inline-block"},
+					create("span", {style: "display:inline-block;text-align:center;"},
 						create("div", "Version"),
-						create("span.tag.is-success.is-large", project.version)
+						create("span.tag.is-primary.is-medium", project.version)
 					),
 					create("span", {style: "display:inline-block"},
 						project.tasks
