@@ -626,12 +626,13 @@
 			if (!info) {
 				var hash = 0;
 				for (var i = 0; i &lt; label.length; ++i) {
-					hash *= 11;
-					hash += label.charCodeAt(i);
+					hash += 31;
+					hash *= label.charCodeAt(i);
+					hash %= 180;
 				}
 				var input = create("input", {type: "checkbox"});
 				info = labels[label] = {
-					colour: `hsl(${(hash % 180) * 2},50%,50%)`,
+					colour: `hsl(${hash * 2},90%,40%)`,
 					state: input.checked
 				};
 				input.onchange = function() {
