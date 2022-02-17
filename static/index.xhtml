@@ -101,6 +101,12 @@
 							</div>
 						</div>
 						<div class="field">
+							<label class="label">Labels</label>
+							<div class="control">
+								<input class="input" type="text" name="labels" id="update_labels"/>
+							</div>
+						</div>
+						<div class="field">
 							<label class="label">URL</label>
 							<div class="control">
 								<input class="input" name="url" id="update_url"/>
@@ -323,6 +329,16 @@
 				<span class="is-size-4 ml-2 has-text-info has-text-weight-bold is-family-code">RACS</span>
 			</a>
 		</div>
+		<div class="navbar-menu">
+			<div class="navbar-item has-dropdown is-hoverable">
+				<a class="navbar-link">Filter</a>
+				<div class="navbar-dropdown">
+					<div class="navbar-item">
+						<form id="labels_dropdown"/>
+					</div>
+				</div>
+			</div>
+		</div>
 		<div class="navbar-end">
 			<div class="navbar-item" id="out-actions" style="display:none;">
 				<div class="buttons">
@@ -340,7 +356,7 @@
 	</nav>
 	<div style="display:flex;flex-wrap:wrap;" id="projects"/>
 	<script type="text/javascript">
-		function build(event) {;
+		function build(event) {
 			var stage = event.target.value;
 			event.target.value = "";
 			fetch(`/project/build?id=${this.id}&amp;stage=${stage}`);
@@ -391,6 +407,7 @@
 		function showProjectSettings() {
 			document.getElementById("update_id").value = this.id;
 			document.getElementById("update_name").value = this.name;
+			document.getElementById("update_labels").value = this.labels;
 			document.getElementById("update_url").value = this.url;
 			document.getElementById("update_branch").value = this.branch;
 			document.getElementById("update_destination").value = this.destination;
@@ -602,6 +619,60 @@
 			}
 		}
 		
+		var labels = {};
+
+		function labelTag(label) {
+			var info = labels[label];
+			if (!info) {
+				var hash = 0;
+				for (var i = 0; i &lt; label.length; ++i) {
+					hash *= 11;
+					hash += label.charCodeAt(i);
+				}
+				var input = create("input", {type: "checkbox"});
+				info = labels[label] = {
+					colour: `hsl(${(hash % 180) * 2},50%,50%)`,
+					state: input.checked
+				};
+				input.onchange = function() {
+					info.state = input.checked;
+					filterProjects();
+				}
+				document.getElementById("labels_dropdown").appendChild(
+					create("div.field",
+						create("div.control",
+							create("label.checkbox", input, " ", label)
+						)
+					)
+				);
+			}
+			var tag = create("span.tag", {style: `background:${info.colour}; color:white; margin:0 0.25em;`}, label);
+			return tag;
+		}
+
+		function filterProjects() {
+			var filter = false;
+			for (var label in labels) {
+				if (labels[label].state) filter = true;
+			}
+			var visible;
+			if (filter) {
+				visible = function(element) {
+					var visible = false;
+					element.labels.forEach(label => {
+						visible = visible || labels[label].state;
+					});
+					return visible;
+				}
+			} else {
+				visible = element => true;
+			}
+			var cards = container.children;
+			for (var i = 0; i &lt; cards.length; ++i) {
+				cards[i].style.setProperty("display", visible(cards[i]) ? null : "none", "important");
+			}
+		}
+
 		function updateProject(result) {
 			var project = projects[result.id];
 			if (!project) {
@@ -624,10 +695,19 @@
 						create("option", {value: "push"}, "Push")
 					)
 				);
-				container.appendChild(create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
+				var labelTags = [];
+				var labels = [];
+				result.labels.split(",").forEach(label => {
+					var trimmed = label.trim().toUpperCase();
+					if (trimmed.length > 0) {
+						labels.push(trimmed);
+						labelTags.push(labelTag(trimmed));
+					}
+				});
+				var card = create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
 					{style: "flex-grow: 1; flex-basis: 0;"},
 					create("span.is-flex-grow-1", {style: "display:inline-block"},
-						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name),
+						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name, labelTags),
 						create("div",
 							buildMenu,
 							" ",
@@ -643,7 +723,9 @@
 					create("span", {style: "display:inline-block"},
 						project.tasks
 					)
-				));
+				);
+				card.labels = labels;
+				container.appendChild(card);
 			}
 			for (var key in result) {
 				switch (key) {

@@ -104,6 +104,7 @@ type taskRequest struct {
 type project struct {
 	id          int
 	name        string
+	labels      string
 	url         string
 	branch      string
 	destination string
@@ -344,7 +345,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
+		id, name, "", url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
 		CREATE_SUCCESS, 0,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
@@ -357,6 +358,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 		"event":       "project/create",
 		"id":          p.id,
 		"name":        p.name,
+		"labels":      p.labels,
 		"url":         p.url,
 		"branch":      p.branch,
 		"destination": p.destination,
@@ -400,6 +402,7 @@ func projectList() []map[string]interface{} {
 		result = append(result, map[string]interface{}{
 			"id":          id,
 			"name":        p.name,
+			"labels":      p.labels,
 			"url":         p.url,
 			"branch":      p.branch,
 			"destination": p.destination,
@@ -604,6 +607,7 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params
 			"buildSpec":   p.buildSpec,
 			"packageSpec": p.packageSpec,
 			"tag":         p.tag,
+			"labels":      p.labels,
 		})
 		w.Write(j)
 	}
@@ -619,19 +623,21 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		w.WriteHeader(500)
 	} else {
 		p.name = params["name"]
+		p.labels = params["labels"]
 		p.url = params["url"]
 		p.branch = params["branch"]
 		p.destination = params["destination"]
 		p.tag = params["tag"]
 		p.buildSpec = filepath.Clean(params["buildSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
-		db.Exec(`UPDATE projects SET name = ?, source = ?, branch = ?, destination = ?, tag = ?,
+		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
 			buildSpec = ?, packageSpec = ? WHERE id = ?`,
-			p.name, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id)
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id)
 		projectEvent(map[string]interface{}{
 			"event":       "project/update",
 			"id":          p.id,
 			"name":        p.name,
+			"labels":      p.labels,
 			"url":         p.url,
 			"branch":      p.branch,
 			"destination": p.destination,
@@ -998,6 +1004,7 @@ func main() {
 			version INTEGER
 		)`,
 		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
+		`ALTER TABLE projects ADD COLUMN labels STRING`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -1035,7 +1042,7 @@ func main() {
 		rows.Scan(&name, &url, &user, &password)
 		registries[name] = &registry{name, url, user, password, time.Unix(0, 0)}
 	}
-	rows, err = db.Query(`SELECT id, name, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1046,11 +1053,12 @@ func main() {
 		var buildSpec string
 		var packageSpec string
 		var buildHash []byte
+		var labels string
 		var stateName string
 		var version int
-		rows.Scan(&id, &name, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version)
+		rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version)
 		p := &project{
-			id, name, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
+			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
 			states[stateName], version,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
