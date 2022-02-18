@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -102,12 +104,14 @@ type taskRequest struct {
 type project struct {
 	id          int
 	name        string
+	labels      string
 	url         string
 	branch      string
 	destination string
 	tag         string
 	buildSpec   string
 	packageSpec string
+	buildHash   []byte
 	state       state
 	version     int
 	tasks       []*task
@@ -173,9 +177,6 @@ func projectRoutine(p *project) {
 		state := request.state
 		trigger := request.trigger
 		logger.Infof("Project %d received task %s", p.id, state.String())
-		if p.state < state-1 {
-			continue
-		}
 		command := ""
 		args := []string{}
 		switch state {
@@ -293,7 +294,23 @@ func projectRoutine(p *project) {
 		case PREPARE_SUCCESS:
 			p.buildFrom(PULLING, trigger)
 		case PULL_SUCCESS:
-			p.buildFrom(BUILDING, trigger)
+			buildHash := []byte{}
+			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
+			if err == nil {
+				h := sha256.New()
+				io.Copy(h, f)
+				f.Close()
+				buildHash = h.Sum(nil)
+			} else {
+				logger.Warn(err)
+			}
+			if !bytes.Equal(buildHash, p.buildHash) {
+				p.buildHash = buildHash
+				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
+				p.buildFrom(PREPARING, trigger)
+			} else {
+				p.buildFrom(BUILDING, trigger)
+			}
 		case BUILD_SUCCESS:
 			p.buildFrom(PACKAGING, trigger)
 		case PACKAGE_SUCCESS:
@@ -328,7 +345,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, url, branch, destination, tag, "BuildSpec", "PackageSpec",
+		id, name, "", url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
 		CREATE_SUCCESS, 0,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
@@ -341,6 +358,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 		"event":       "project/create",
 		"id":          p.id,
 		"name":        p.name,
+		"labels":      p.labels,
 		"url":         p.url,
 		"branch":      p.branch,
 		"destination": p.destination,
@@ -384,6 +402,7 @@ func projectList() []map[string]interface{} {
 		result = append(result, map[string]interface{}{
 			"id":          id,
 			"name":        p.name,
+			"labels":      p.labels,
 			"url":         p.url,
 			"branch":      p.branch,
 			"destination": p.destination,
@@ -588,6 +607,7 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params
 			"buildSpec":   p.buildSpec,
 			"packageSpec": p.packageSpec,
 			"tag":         p.tag,
+			"labels":      p.labels,
 		})
 		w.Write(j)
 	}
@@ -603,19 +623,21 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		w.WriteHeader(500)
 	} else {
 		p.name = params["name"]
+		p.labels = params["labels"]
 		p.url = params["url"]
 		p.branch = params["branch"]
 		p.destination = params["destination"]
 		p.tag = params["tag"]
 		p.buildSpec = filepath.Clean(params["buildSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
-		db.Exec(`UPDATE projects SET name = ?, source = ?, branch = ?, destination = ?, tag = ?,
+		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
 			buildSpec = ?, packageSpec = ? WHERE id = ?`,
-			p.name, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id)
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id)
 		projectEvent(map[string]interface{}{
 			"event":       "project/update",
 			"id":          p.id,
 			"name":        p.name,
+			"labels":      p.labels,
 			"url":         p.url,
 			"branch":      p.branch,
 			"destination": p.destination,
@@ -656,12 +678,21 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params
 
 func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	if r.MultipartForm != nil {
-		file := r.MultipartForm.File["file"][0]
+		files := r.MultipartForm.File["file"]
+		if (files != nil) && (len(files) > 0) {
+			file := files[0]
+			temp, _ := ioutil.TempFile("uploads", "upload-")
+			rd, _ := file.Open()
+			io.Copy(temp, rd)
+			temp.Close()
+			rd.Close()
+			params["upload"] = temp.Name()
+		}
+	}
+	if params["value"] != "" {
 		temp, _ := ioutil.TempFile("uploads", "upload-")
-		rd, _ := file.Open()
-		io.Copy(temp, rd)
+		temp.WriteString(params["value"])
 		temp.Close()
-		rd.Close()
 		params["upload"] = temp.Name()
 	}
 	if checkLogin(u, "admin", w, "/project/upload", params) {
@@ -857,6 +888,7 @@ func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, 
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, r.URL.Path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
 	if strings.HasPrefix(contentType, "application/json") {
@@ -971,6 +1003,8 @@ func main() {
 			state STRING,
 			version INTEGER
 		)`,
+		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
+		`ALTER TABLE projects ADD COLUMN labels STRING`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -991,10 +1025,7 @@ func main() {
 	}
 
 	for _, stat := range stats {
-		_, err := db.Exec(stat)
-		if err != nil {
-			logger.Errorf("%q: %s\n", err, stat)
-		}
+		db.Exec(stat)
 	}
 
 	states := make(map[string]state)
@@ -1011,7 +1042,7 @@ func main() {
 		rows.Scan(&name, &url, &user, &password)
 		registries[name] = &registry{name, url, user, password, time.Unix(0, 0)}
 	}
-	rows, err = db.Query(`SELECT id, name, source, branch, destination, tag, buildSpec, packageSpec, state, version FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1021,11 +1052,13 @@ func main() {
 		var tag string
 		var buildSpec string
 		var packageSpec string
+		var buildHash []byte
+		var labels string
 		var stateName string
 		var version int
-		rows.Scan(&id, &name, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &stateName, &version)
+		rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version)
 		p := &project{
-			id, name, source, branch, destination, tag, buildSpec, packageSpec,
+			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
 			states[stateName], version,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
