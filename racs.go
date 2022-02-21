@@ -201,6 +201,7 @@ func projectRoutine(p *project) {
 			command = "podman"
 			args = []string{"run", "--network=host", "--rm=true",
 				"-e", fmt.Sprintf("RACS_TRIGGER=%s", trigger),
+				"-e", fmt.Sprintf("RACS_VERSION=%d", p.version+1),
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--read-only", fmt.Sprintf("builder-%d", p.id),
 			}
