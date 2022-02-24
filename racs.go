@@ -977,7 +977,7 @@ func main() {
 		logger.Fatal(err)
 	}
 	defer db.Close()
-	//db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(1)
 
 	stats := []string{
 		`CREATE TABLE IF NOT EXISTS users(
