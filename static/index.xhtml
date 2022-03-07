@@ -633,10 +633,10 @@
 				var input = create("input", {type: "checkbox"});
 				info = labels[label] = {
 					colour: `hsl(${hash * 2},90%,40%)`,
-					state: input.checked
+					checked: input.checked
 				};
 				input.onchange = function() {
-					info.state = input.checked;
+					info.checked = input.checked;
 					filterProjects();
 				}
 				document.getElementById("labels_dropdown").appendChild(
@@ -652,21 +652,13 @@
 		}
 
 		function filterProjects() {
-			var filter = false;
-			for (var label in labels) {
-				if (labels[label].state) filter = true;
-			}
-			var visible;
-			if (filter) {
-				visible = function(element) {
-					var visible = false;
-					element.labels.forEach(label => {
-						visible = visible || labels[label].state;
-					});
-					return visible;
+			function visible(element) {
+				for (var label in labels) {
+					if (labels[label].checked &amp;&amp; (element.labels.indexOf(label) === -1)) {
+						return false;
+					}
 				}
-			} else {
-				visible = element => true;
+				return true;
 			}
 			var cards = container.children;
 			for (var i = 0; i &lt; cards.length; ++i) {
