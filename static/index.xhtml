@@ -1,4 +1,4 @@
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml"> 
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
 <head>
 	<meta charset="utf-8"/>
 	<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -124,7 +124,9 @@
 							<div class="control">
 								<!--input class="input" name="destination" id="update_destination"/-->
 								<div class="select" autocomplete="off">
-									<select name="destination" id="update_destination"/>
+									<select name="destination" id="update_destination">
+										<option value=""/>
+									</select>
 								</div>
 							</div>
 						</div>
@@ -342,12 +344,12 @@
 			event.target.value = "";
 			fetch(`/project/build?id=${this.id}&amp;stage=${stage}`);
 		}
-		
+
 		function showCreate() {
 			var modal = document.getElementById("create");
 			modal.addClass("is-active");
 		}
-		
+
 		function hideCreate() {
 			var modal = document.getElementById("create");
 			modal.removeClass("is-active");
@@ -363,7 +365,7 @@
 			tabs.children[index].addClass("is-active");
 			container.children[index].style.display = null;
 		}
-		
+
 		var stages = {
 			CLEANING: "clean",
 			CLONING: "clone",
@@ -374,7 +376,7 @@
 			PUSHING: "push",
 			DELETING: "delete"
 		};
-		
+
 		function showSettings() {
 			document.getElementById("update_id").value = this.id;
 			document.getElementById("update_name").value = this.name;
@@ -410,7 +412,7 @@
 			var modal = document.getElementById("project_settings");
 			modal.removeClass("is-active");
 		}
-		
+
 		function changeUploadType() {
 			let type = document.getElementById("upload_type").value;
 			let container = document.getElementById("upload_value");
@@ -465,7 +467,7 @@
 				triggers.removeChild(row);
 			}
 		}
-		
+
 		function submitTriggers() {
 			var triggers = document.getElementById("trigger_table");
 			var value = [];
@@ -477,7 +479,7 @@
 			});
 			document.getElementById("trigger_triggers").value = value;
 		}
-		
+
 		function hideTriggers() {
 			var modal = document.getElementById("triggers");
 			modal.removeClass("is-active");
@@ -519,27 +521,27 @@
 			var modal = document.getElementById("environment");
 			modal.removeClass("is-active");
 		}
-		
+
 		function showLogin() {
 			var modal = document.getElementById("login");
 			modal.addClass("is-active");
 		}
-		
+
 		function hideLogin() {
 			var modal = document.getElementById("login");
 			modal.removeClass("is-active");
 		}
-		
+
 		function showLogout() {
 			var modal = document.getElementById("logout");
 			modal.addClass("is-active");
 		}
-		
+
 		function hideLogout() {
 			var modal = document.getElementById("logout");
 			modal.removeClass("is-active");
 		}
-		
+
 		var ansi_up = new AnsiUp;
 		var taskInterval = null;
 		function showTaskLogs() {
@@ -581,7 +583,7 @@
 			fetchLogs();
 			taskInterval = setInterval(fetchLogs, 1000);
 		}
-		
+
 		function hideTaskLogs() {
 			var modal = document.getElementById("task_log");
 			modal.removeClass("is-active");
@@ -590,13 +592,13 @@
 				taskInterval = null;
 			}
 		}
-		
+
 		var container = document.getElementById("projects");
 		var projects = [];
 		var tasks = [];
 		var registries = [];
 		var credentials = [];
-		
+
 		function updateTask(project, result) {
 			var task = tasks[result.id];
 			if (!task) {
@@ -634,7 +636,7 @@
 				break;
 			}
 		}
-		
+
 		var labels = {};
 
 		function labelTag(label) {
@@ -761,7 +763,7 @@
 				}
 			}
 		}
-		
+
 		function updateRegistry(registry) {
 			var destinations = document.getElementById("update_destination")
 			destinations.appendChild(create("option", {value: registry.name}, registry.name));
@@ -807,7 +809,7 @@
 				}
 			}
 		}
-		
+
 		function fetchConfig() {
 			fetch("/project/list").then(response => response.json()).then(results => {
 				results.forEach(updateProject);
@@ -820,7 +822,7 @@
 				credentials = results;
 			});
 		}
-		
+
 		fetch("/user/current").then(response => response.text()).then(name => {
 			console.log("User = ", name);
 			var inActions = document.getElementById("in-actions");
