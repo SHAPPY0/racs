@@ -83,7 +83,8 @@
 							<li><a onclick="showSettingsTab(0)">Settings</a></li>
 							<li><a onclick="showSettingsTab(1)">Upload</a></li>
 							<li><a onclick="showSettingsTab(2)">Triggers</a></li>
-							<li><a onclick="showSettingsTab(3)">Delete</a></li>
+							<li><a onclick="showSettingsTab(3)">Environment</a></li>
+							<li><a onclick="showSettingsTab(4)">Delete</a></li>
 						</ul>
 					</div>
 				</p>
@@ -121,7 +122,10 @@
 						<div class="field">
 							<label class="label">Destination</label>
 							<div class="control">
-								<input class="input" name="destination" id="update_destination"/>
+								<!--input class="input" name="destination" id="update_destination"/-->
+								<div class="select" autocomplete="off">
+									<select name="destination" id="update_destination"/>
+								</div>
 							</div>
 						</div>
 						<div class="field">
@@ -200,6 +204,22 @@
 						<button class="button is-primary" type="submit" onclick="submitTriggers()">Update</button>
 					</footer>
 				</form>
+				<form action="/project/environment" method="POST">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="environment_id" value=""/>
+						<input type="hidden" name="environment" id="environment_credentials" value=""/>
+						<table class="table is-fullwidth">
+							<tbody id="environment_table"/>
+						</table>
+					</section>
+					<footer class="modal-card-foot">
+						<span class="button is-info" onclick="addCredential()">Add Credential</span>
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-primary" type="submit" onclick="submitEnvironment()">Update</button>
+					</footer>
+				</form>
 				<form action="/project/delete" method="POST">
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
@@ -236,47 +256,6 @@
 				<button class="button" onclick="hideTaskLogs()" type="reset">Close</button>
 			</footer>
 		</div>
-	</div>
-	<div class="modal" id="registry">
-		<div class="modal-background"/>
-		<form class="modal-card" action="/registry/create" method="POST">
-			<header class="modal-card-head">
-				<p class="modal-card-title">Add/Update Registry</p>
-				<button class="delete" aria-label="close" onclick="hideRegistry()" type="reset"/>
-			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<div class="field">
-					<label class="label">Name</label>
-					<div class="control">
-						<input class="input" name="name"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">URL</label>
-					<div class="control">
-						<input class="input" name="url"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">User</label>
-					<div class="control">
-						<input class="input" name="user"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Password</label>
-					<div class="control">
-						<input class="input" type="password" name="password"/>
-					</div>
-				</div>
-			</section>
-			<footer class="modal-card-foot">
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideRegistry()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit">Add/Update</button>
-			</footer>
-		</form>
 	</div>
 	<div class="modal" id="login">
 		<div class="modal-background"/>
@@ -322,7 +301,7 @@
 			</footer>
 		</form>
 	</div>
-	<nav class="navbar" role="navigation" aria-label="main navigation">
+	<nav class="navbar is-radiusless" role="navigation" aria-label="main navigation">
 		<div class="navbar-brand">
 			<a class="navbar-item" href="/">
 				<img src="/favicon-96x96.png"/>
@@ -330,6 +309,11 @@
 			</a>
 		</div>
 		<div class="navbar-menu">
+			<a class="navbar-item is-tab is-active" href="/">Projects</a>
+			<a class="navbar-item is-tab" href="/credentials.xhtml">Credentials</a>
+			<a class="navbar-item is-tab" href="/registries.xhtml">Registries</a>
+		</div>
+		<div class="navbar-end">
 			<div class="navbar-item has-dropdown is-hoverable">
 				<a class="navbar-link">Filter</a>
 				<div class="navbar-dropdown">
@@ -338,8 +322,6 @@
 					</div>
 				</div>
 			</div>
-		</div>
-		<div class="navbar-end">
 			<div class="navbar-item" id="out-actions" style="display:none;">
 				<div class="buttons">
 					<button class="button is-small is-primary" onclick="showLogin()">Login</button>
@@ -347,7 +329,6 @@
 			</div>
 			<div class="navbar-item" id="in-actions" style="display:none;">
 				<div class="buttons">
-					<button class="button is-small" onclick="showRegistry()">Add/Update Registry</button>
 					<button class="button is-small" onclick="showCreate()">Create Project</button>
 					<button class="button is-small is-danger" onclick="showLogout()">Logout</button>
 				</div>
@@ -360,16 +341,6 @@
 			var stage = event.target.value;
 			event.target.value = "";
 			fetch(`/project/build?id=${this.id}&amp;stage=${stage}`);
-		}
-		
-		function showRegistry() {
-			var modal = document.getElementById("registry");
-			modal.addClass("is-active");
-		}
-		
-		function hideRegistry() {
-			var modal = document.getElementById("registry");
-			modal.removeClass("is-active");
 		}
 		
 		function showCreate() {
@@ -385,7 +356,7 @@
 		function showSettingsTab(index) {
 			var tabs = document.getElementById("project_settings_tabs");
 			var container = document.getElementById("project_settings_container");
-			for (var i = 0; i &lt; 4; ++i) {
+			for (var i = 0; i &lt; 5; ++i) {
 				tabs.children[i].removeClass("is-active");
 				container.children[i].style.display = "none";
 			}
@@ -404,7 +375,7 @@
 			DELETING: "delete"
 		};
 		
-		function showProjectSettings() {
+		function showSettings() {
 			document.getElementById("update_id").value = this.id;
 			document.getElementById("update_name").value = this.name;
 			document.getElementById("update_labels").value = this.labels;
@@ -416,10 +387,16 @@
 			document.getElementById("update_packageSpec").value = this.packageSpec;
 			document.getElementById("upload_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
+			document.getElementById("environment_id").value = this.id;
 			var triggers = document.getElementById("trigger_table");
 			while (triggers.firstChild) triggers.removeChild(triggers.firstChild);
 			this.triggers.forEach(trigger => {
 				addTrigger(trigger[0].toString(), stages[trigger[1]] || "none");
+			});
+			var environment = document.getElementById("environment_table");
+			while (environment.firstChild) environment.removeChild(environment.firstChild);
+			this.environment.forEach(binding => {
+				addCredential(binding[0].toString(), binding[1], binding[2]);
 			});
 			document.getElementById("delete_id").value = this.id;
 			document.getElementById("delete_confirm").value = "";
@@ -505,6 +482,43 @@
 			var modal = document.getElementById("triggers");
 			modal.removeClass("is-active");
 		}
+
+		function addCredential(name, id, description) {
+			var environment = document.getElementById("environment_table");
+			var nameInput = create("input.input", {type: "text"});
+			var credentialSelect = create("select",
+				create("option", {value: ""}, "--- Credential ---"),
+				credentials.map(credential => create("option", {value: credential.id}, credential.description))
+			);
+			if (name) nameInput.value = name;
+			if (id) credentialSelect.value = id;
+			var row = create("tr",
+				create("td", nameInput),
+				create("td", create("div.select", credentialSelect)),
+				create("td", create("span.button.is-danger", {"on-click": remove}, "Remove"))
+			);
+			environment.appendChild(row);
+			function remove() {
+				environment.removeChild(row);
+			}
+		}
+
+		function submitEnvironment() {
+			var environment = document.getElementById("environment_table");
+			var value = [];
+			environment.childNodes.forEach(child => {
+				if (child.children[0].children[0].value !== "") value.push([
+					child.children[0].children[0].value,
+					child.children[1].children[0].children[0].value
+				]);
+			});
+			document.getElementById("environment_credentials").value = value;
+		}
+
+		function hideEnvironment() {
+			var modal = document.getElementById("environment");
+			modal.removeClass("is-active");
+		}
 		
 		function showLogin() {
 			var modal = document.getElementById("login");
@@ -580,6 +594,8 @@
 		var container = document.getElementById("projects");
 		var projects = [];
 		var tasks = [];
+		var registries = [];
+		var credentials = [];
 		
 		function updateTask(project, result) {
 			var task = tasks[result.id];
@@ -704,7 +720,7 @@
 						create("div",
 							buildMenu,
 							" ",
-							create("button.button.is-small", {"on-click": showProjectSettings.bind(result)},
+							create("button.button.is-small", {"on-click": showSettings.bind(result)},
 								create("span.icon", create("i.fas.fa-tools"))
 							)
 						)
@@ -746,12 +762,17 @@
 			}
 		}
 		
+		function updateRegistry(registry) {
+			var destinations = document.getElementById("update_destination")
+			destinations.appendChild(create("option", {value: registry.name}, registry.name));
+		}
+
 		var events = null;
-		var fetchInterval = setInterval(fetchProjects, 1000);
-		fetchProjects();
+		var fetchInterval = setInterval(fetchConfig, 1000);
+		fetchConfig();
 
 		function connectEvents() {
-			events = new EventSource("/project/events");
+			events = new EventSource("/events");
 			events.onopen = function() {
 				console.log("Events opened, clearing interval");
 				if (fetchInterval !== null) {
@@ -782,15 +803,21 @@
 			events.onerror = function() {
 				events = null;
 				if (fetchInterval === null) {
-					fetchInterval = setInterval(fetchProjects, 1000);
+					fetchInterval = setInterval(fetchConfig, 1000);
 				}
 			}
 		}
 		
-		function fetchProjects() {
+		function fetchConfig() {
 			fetch("/project/list").then(response => response.json()).then(results => {
 				results.forEach(updateProject);
 				if (events === null) connectEvents();
+			});
+			fetch("/registry/list").then(response => response.json()).then(results => {
+				results.forEach(updateRegistry);
+			});
+			fetch("/credential/list").then(response => response.json()).then(results => {
+				credentials = results;
 			});
 		}
 		
