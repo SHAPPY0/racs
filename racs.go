@@ -193,10 +193,10 @@ func (p *project) buildFrom(state state, trigger string) {
 func projectEnvironment(p *project, trigger string) string {
 	filename := fmt.Sprintf("%s/%d/environment", projectAbs, p.id)
 	f, _ := os.Create(filename)
-	fmt.Fprintf(f, "RACS_TRIGGER\n%s\n", trigger)
-	fmt.Fprintf(f, "RACS_VERSION\n%d\n", p.version+1)
+	fmt.Fprintf(f, "RACS_TRIGGER=%s\n", trigger)
+	fmt.Fprintf(f, "RACS_VERSION=%d\n", p.version+1)
 	for name, cr := range p.credentials {
-		fmt.Fprintf(f, "%s\n%s\n", name, cr.value)
+		fmt.Fprintf(f, "%s=%s\n", name, cr.value)
 	}
 	f.Close()
 	return filename
