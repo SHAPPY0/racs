@@ -177,12 +177,12 @@ func registryLogin(name string) string {
 	if r == nil {
 		return ""
 	}
-	if time.Since(r.login).Hours() > 1 {
-		if len(r.user) > 0 {
-			exec.Command("podman", "login", r.url, "-u", r.user, "-p", r.password).Run()
-		}
-		r.login = time.Now()
+	//if time.Since(r.login).Hours() > 1 {
+	if len(r.user) > 0 {
+		exec.Command("podman", "login", r.url, "-u", r.user, "-p", r.password).Run()
 	}
+	r.login = time.Now()
+	//}
 	return r.url
 }
 
