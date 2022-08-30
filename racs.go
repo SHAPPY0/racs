@@ -221,7 +221,7 @@ func projectRoutine(p *project) {
 		case PREPARING:
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
-			args = []string{"build", "--squash-all", "-f", spec, "-t", fmt.Sprintf("builder-%d", p.id)}
+			args = []string{"build", "--pull=newer", "--squash-all", "-f", spec, "-t", fmt.Sprintf("builder-%d", p.id)}
 			if p.prepareDep != nil {
 				args = append(args, "--from", fmt.Sprintf("project-%d", p.prepareDep.id))
 			}
@@ -242,6 +242,7 @@ func projectRoutine(p *project) {
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
 			args = []string{"build",
+				"--pull=newer",
 				//"--env-file", projectEnvironment(p, trigger),
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--squash",
