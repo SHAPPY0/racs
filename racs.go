@@ -94,6 +94,7 @@ type registry struct {
 	user     string
 	password string
 	login    time.Time
+	timeout  int
 }
 
 type taskRequest struct {
@@ -156,18 +157,19 @@ func registryList() []map[string]interface{} {
 	result := make([]map[string]interface{}, 0)
 	for name, r := range registries {
 		result = append(result, map[string]interface{}{
-			"name": name,
-			"url":  r.url,
-			"user": r.user,
+			"name":    name,
+			"url":     r.url,
+			"user":    r.user,
+			"timeout": r.timeout,
 		})
 	}
 	return result
 }
 
-func registryCreate(name, url, user, password string) *registry {
-	db.Exec(`REPLACE INTO registries(name, url, user, password) VALUES(?, ?, ?, ?)`, name, url, user, password)
+func registryCreate(name, url, user, password string, timeout int) *registry {
+	db.Exec(`REPLACE INTO registries(name, url, user, password, timeout) VALUES(?, ?, ?, ?)`, name, url, user, password, timeout)
 	logger.Infof("Registry created %s %s %s ******", name, url, user)
-	r := &registry{name, url, user, password, time.Unix(0, 0)}
+	r := &registry{name, url, user, password, time.Unix(0, 0), timeout}
 	registries[r.name] = r
 	return r
 }
@@ -177,12 +179,12 @@ func registryLogin(name string) string {
 	if r == nil {
 		return ""
 	}
-	//if time.Since(r.login).Hours() > 1 {
-	if len(r.user) > 0 {
-		exec.Command("podman", "login", r.url, "-u", r.user, "-p", r.password).Run()
+	if time.Since(r.login).Minutes() > float64(r.timeout) {
+		if len(r.user) > 0 {
+			exec.Command("podman", "login", r.url, "-u", r.user, "-p", r.password).Run()
+		}
+		r.login = time.Now()
 	}
-	r.login = time.Now()
-	//}
 	return r.url
 }
 
@@ -926,7 +928,8 @@ func handleRegistryCreate(w http.ResponseWriter, r *http.Request, u *user, param
 	url := params["url"]
 	user := params["user"]
 	password := params["password"]
-	reg := registryCreate(name, url, user, password)
+	timeout, _ := strconv.Atoi(params["timeout"])
+	reg := registryCreate(name, url, user, password, timeout)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
 		w.Header().Add("Location", redirect)
@@ -946,7 +949,8 @@ func handleRegistryUpdate(w http.ResponseWriter, r *http.Request, u *user, param
 	reg.url = params["url"]
 	reg.user = params["user"]
 	reg.password = params["password"]
-	db.Exec(`UPDATE registries SET url = ?, user = ?, password = ? WHERE name = ?`, reg.url, reg.user, reg.password, reg.name)
+	reg.timeout, _ = strconv.Atoi(params["timeout"])
+	db.Exec(`UPDATE registries SET url = ?, user = ?, password = ?, timeout = ? WHERE name = ?`, reg.url, reg.user, reg.password, reg.timeout, reg.name)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
 		w.Header().Add("Location", redirect)
@@ -1129,6 +1133,7 @@ func main() {
 			user STRING,
 			password STRING
 		)`,
+		`ALTER TABLE registries ADD COLUMN timeout INTEGER`,
 		`CREATE TABLE IF NOT EXISTS projects(
 			id INTEGER PRIMARY KEY,
 			name STRING,
@@ -1181,14 +1186,15 @@ func main() {
 		states[state.String()] = state
 	}
 
-	rows, err := db.Query(`SELECT name, url, user, password FROM registries`)
+	rows, err := db.Query(`SELECT name, url, user, password, timeout FROM registries`)
 	for rows.Next() {
 		var name string
 		var url string
 		var user string
 		var password string
-		rows.Scan(&name, &url, &user, &password)
-		registries[name] = &registry{name, url, user, password, time.Unix(0, 0)}
+		var timeout int
+		rows.Scan(&name, &url, &user, &password, &timeout)
+		registries[name] = &registry{name, url, user, password, time.Unix(0, 0), timeout}
 	}
 	rows, err = db.Query(`SELECT id, description, value FROM credentials`)
 	for rows.Next() {
