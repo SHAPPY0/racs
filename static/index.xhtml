@@ -293,7 +293,7 @@
 		<form class="modal-card" action="/user/logout" method="POST">
 			<input type="hidden" name="redirect" value="/"/>
 			<header class="modal-card-head">
-				<p class="modal-card-title">Login</p>
+				<p class="modal-card-title">Logout</p>
 				<button class="delete" aria-label="close" type="reset"/>
 			</header>
 			<footer class="modal-card-foot">
@@ -309,36 +309,47 @@
 				<img src="/favicon-96x96.png"/>
 				<span class="is-size-4 ml-2 has-text-info has-text-weight-bold is-family-code">RACS</span>
 			</a>
-		</div>
-		<div class="navbar-menu">
 			<a class="navbar-item is-tab is-active" href="/">Projects</a>
 			<a class="navbar-item is-tab" href="/credentials.xhtml">Credentials</a>
 			<a class="navbar-item is-tab" href="/registries.xhtml">Registries</a>
+			<a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" id="navbar-burger">
+				<span aria-hidden="true"></span>
+				<span aria-hidden="true"></span>
+				<span aria-hidden="true"></span>
+			</a>
 		</div>
-		<div class="navbar-end">
-			<div class="navbar-item has-dropdown is-hoverable">
-				<a class="navbar-link">Filter</a>
-				<div class="navbar-dropdown">
-					<div class="navbar-item">
-						<form id="labels_dropdown"/>
+		<div class="navbar-menu" id="navbar-menu">
+			<div class="navbar-end">
+				<div class="navbar-item has-dropdown is-hoverable">
+					<a class="navbar-link">Filter</a>
+					<div class="navbar-dropdown">
+						<div class="navbar-item">
+							<form id="labels_dropdown"/>
+						</div>
 					</div>
 				</div>
-			</div>
-			<div class="navbar-item" id="out-actions" style="display:none;">
-				<div class="buttons">
-					<button class="button is-small is-primary" onclick="showLogin()">Login</button>
+				<div class="navbar-item" id="out-actions" style="display:none;">
+					<div class="buttons">
+						<button class="button is-small is-primary" onclick="showLogin()">Login</button>
+					</div>
 				</div>
-			</div>
-			<div class="navbar-item" id="in-actions" style="display:none;">
-				<div class="buttons">
-					<button class="button is-small" onclick="showCreate()">Create Project</button>
-					<button class="button is-small is-danger" onclick="showLogout()">Logout</button>
+				<div class="navbar-item" id="in-actions" style="display:none;">
+					<div class="buttons">
+						<button class="button is-small" onclick="showCreate()">Create Project</button>
+						<button class="button is-small is-danger" onclick="showLogout()">Logout</button>
+					</div>
 				</div>
 			</div>
 		</div>
 	</nav>
 	<div style="display:flex;flex-wrap:wrap;" id="projects"/>
 	<script type="text/javascript">
+		let burger = document.getElementById("navbar-burger");
+		burger.onclick = function(event) {
+			let menu = document.getElementById("navbar-menu");
+			burger.classList.toggle("is-active");
+			menu.classList.toggle("is-active");
+		}
 		function build(event) {
 			var stage = event.target.value;
 			event.target.value = "";
@@ -613,7 +624,7 @@
 					create("div.mb-2", task.state, " ", create("span", result.type)),
 					create("div", time[0], " ", time[1]),
 				);
-				project.tasks.appendChild(task.box);
+				project.tasks.appendChild(create("span", {style: "max-width: 20%;"}, task.box));
 				while (project.tasks.children.length > 5) {
 					project.tasks.removeChild(project.tasks.firstChild);
 				}
@@ -731,9 +742,9 @@
 						create("div", "Version"),
 						create("span.tag.is-primary.is-medium", project.version)
 					),
-					create("span", {style: "display:inline-block"},
+					//create("span", {style: "display:inline-block"},
 						project.tasks
-					)
+					//)
 				);
 				card.labels = labels;
 				container.appendChild(card);
