@@ -17,9 +17,29 @@ Element.prototype.replace = function(other) {
 	if (this.parentNode) this.parentNode.replaceChild(other, this);
 };
 
+Element.prototype.appendChildren = function() {
+	Array.prototype.forEach.call(arguments, child => {
+		if (!child) {
+		} else if (child instanceof Array) {
+			this.appendChildren.apply(this, child);
+		} else if (child instanceof _Widget.T) {
+			this.appendChild(child.element);
+		} else if (typeof child === "string") {
+			this.appendChild(document.createTextNode(child));
+		} else {
+			this.appendChild(child);
+		}
+	});
+};
+
 Element.prototype.removeChildren = function() {
 	var child;
 	while (child = this.firstChild) this.removeChild(child);
+};
+
+Element.prototype.replaceChildren = function() {
+	this.removeChildren();
+	this.appendChildren.apply(this, arguments);
 };
 
 Element.prototype.prependChild = function(child) {
