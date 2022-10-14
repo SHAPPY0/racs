@@ -724,12 +724,9 @@
 					create("option", {value: "package"}, "Package"),
 					create("option", {value: "push"}, "Push")
 				);
-				console.log(window.user === "");
-				console.log(project);
 				if (result.protected &amp;&amp; window.user === "") {
 					buildSelect.disabled = true;
 				}
-				console.log(buildSelect);
 				var buildMenu = create("span.select.is-small.is-primary",
 					{style: "margin-bottom: 0.5rem"},
 					buildSelect
