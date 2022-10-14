@@ -56,7 +56,11 @@
 				<div class="field">
 					<label class="label">Destination</label>
 					<div class="control">
-						<input class="input" name="destination"/>
+						<div class="select" autocomplete="off">
+							<select name="destination" id="destination">
+								<option value=""/>
+							</select>
+						</div>
 					</div>
 				</div>
 				<div class="field">
@@ -122,7 +126,6 @@
 						<div class="field">
 							<label class="label">Destination</label>
 							<div class="control">
-								<!--input class="input" name="destination" id="update_destination"/-->
 								<div class="select" autocomplete="off">
 									<select name="destination" id="update_destination">
 										<option value=""/>
@@ -148,6 +151,12 @@
 								<input class="input" name="packageSpec" id="update_packageSpec"/>
 							</div>
 						</div>
+						<div class="field">
+							<label class="label">Protected</label>
+							<div class="control">
+								<input class="checkbox" type="checkbox" name="protected" id="update_protected"/>
+							</div>
+						</div>
 					</section>
 					<footer class="modal-card-foot">
 						<span style="flex:1 1;"/>
@@ -159,12 +168,6 @@
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
 						<input type="hidden" name="id" id="upload_id" value=""/>
-						<div class="field">
-							<label class="label">Name</label>
-							<div class="control">
-								<input class="input" name="name" id="uploadname"/>
-							</div>
-						</div>
 						<div class="field">
 							<label class="label">Type</label>
 							<div class="field-body" style="clear:both;">
@@ -181,6 +184,12 @@
 								<div class="field">
 									<div class="control" id="upload_value"/>
 								</div>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label">Name</label>
+							<div class="control">
+								<input class="input" name="name" id="uploadname"/>
 							</div>
 						</div>
 					</section>
@@ -398,6 +407,7 @@
 			document.getElementById("update_tag").value = this.tag;
 			document.getElementById("update_buildSpec").value = this.buildSpec;
 			document.getElementById("update_packageSpec").value = this.packageSpec;
+			document.getElementById("update_protected").checked = this.protected;
 			document.getElementById("upload_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			document.getElementById("environment_id").value = this.id;
@@ -704,18 +714,25 @@
 					version: create("span")
 				};
 				project.name = result.name;
+				var buildSelect = create("select", {"on-change": build.bind(result)},
+					create("option", {value: "", style: "color:red;"}, "--- Build ---"),
+					create("option", {value: "clean"}, "Clean"),
+					create("option", {value: "clone"}, "Clone"),
+					create("option", {value: "prepare"}, "Prepare"),
+					create("option", {value: "pull"}, "Pull"),
+					create("option", {value: "build"}, "Build"),
+					create("option", {value: "package"}, "Package"),
+					create("option", {value: "push"}, "Push")
+				);
+				console.log(window.user === "");
+				console.log(project);
+				if (result.protected &amp;&amp; window.user === "") {
+					buildSelect.disabled = true;
+				}
+				console.log(buildSelect);
 				var buildMenu = create("span.select.is-small.is-primary",
 					{style: "margin-bottom: 0.5rem"},
-					create("select", {"on-change": build.bind(result)},
-						create("option", {value: "", style: "color:red;"}, "--- Build ---"),
-						create("option", {value: "clean"}, "Clean"),
-						create("option", {value: "clone"}, "Clone"),
-						create("option", {value: "prepare"}, "Prepare"),
-						create("option", {value: "pull"}, "Pull"),
-						create("option", {value: "build"}, "Build"),
-						create("option", {value: "package"}, "Package"),
-						create("option", {value: "push"}, "Push")
-					)
+					buildSelect
 				);
 				var labelTags = [];
 				var labels = [];
@@ -776,13 +793,28 @@
 		}
 
 		function updateRegistry(registry) {
-			var destinations = document.getElementById("update_destination")
-			destinations.appendChild(create("option", {value: registry.name}, registry.name));
+			document.getElementById("destination").appendChild(create("option", {value: registry.name}, registry.name));
+			document.getElementById("update_destination").appendChild(create("option", {value: registry.name}, registry.name));
 		}
 
-		var events = null;
-		var fetchInterval = setInterval(fetchConfig, 1000);
-		fetchConfig();
+		var events = null, fetchInterval = null;
+
+		fetch("/user/current").then(response => response.text()).then(name => {
+			console.log("User = ", name);
+			window.user = name;
+			var inActions = document.getElementById("in-actions");
+			var outActions = document.getElementById("out-actions");
+			if (name) {
+				inActions.style.display = null;
+				outActions.style.display = "none";
+			} else {
+				inActions.style.display = "none";
+				outActions.style.display = null;
+			}
+
+			fetchInterval = setInterval(fetchConfig, 1000);
+			fetchConfig();
+		});
 
 		function connectEvents() {
 			events = new EventSource("/events");
@@ -833,19 +865,6 @@
 				credentials = results;
 			});
 		}
-
-		fetch("/user/current").then(response => response.text()).then(name => {
-			console.log("User = ", name);
-			var inActions = document.getElementById("in-actions");
-			var outActions = document.getElementById("out-actions");
-			if (name) {
-				inActions.style.display = null;
-				outActions.style.display = "none";
-			} else {
-				inActions.style.display = "none";
-				outActions.style.display = null;
-			}
-		});
 	</script>
 </body>
 </html>

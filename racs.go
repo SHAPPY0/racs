@@ -121,6 +121,7 @@ type project struct {
 	buildHash   []byte
 	state       state
 	version     int
+	protected   bool
 	tasks       []*task
 	queue       chan taskRequest
 	triggers    map[*project]state
@@ -389,7 +390,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
 		id, name, "", url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
-		CREATE_SUCCESS, 0,
+		CREATE_SUCCESS, 0, false,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make(map[*project]state),
@@ -411,6 +412,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 		"packageSpec": p.packageSpec,
 		"state":       p.state.String(),
 		"version":     p.version,
+		"protected":   p.protected,
 	})
 	return p
 }
@@ -462,6 +464,7 @@ func projectList() []map[string]interface{} {
 			"state":       p.state.String(),
 			"tasks":       tasks,
 			"version":     p.version,
+			"protected":   p.protected,
 			"triggers":    triggers,
 			"environment": environment,
 		})
@@ -681,9 +684,10 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.tag = params["tag"]
 		p.buildSpec = filepath.Clean(params["buildSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
+		p.protected = params["protected"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
-			buildSpec = ?, packageSpec = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id)
+			buildSpec = ?, packageSpec = ?, protected = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id, p.protected)
 		event(map[string]interface{}{
 			"event":       "project/update",
 			"id":          p.id,
@@ -695,6 +699,7 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 			"buildSpec":   p.buildSpec,
 			"packageSpec": p.packageSpec,
 			"tag":         p.tag,
+			"protected":   p.protected,
 		})
 		redirect := params["redirect"]
 		if len(redirect) > 0 {
@@ -864,6 +869,11 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	id, _ := strconv.Atoi(params["id"])
 	stage := params["stage"]
 	p := projects[id]
+	if p.protected && u.Name == "" {
+		w.WriteHeader(403)
+		w.Write([]byte("Unauthorized"))
+		return
+	}
 	switch stage {
 	case "clean":
 		p.buildFrom(CLEANING, "")
@@ -885,6 +895,9 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 }
 
 func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/delete", params) {
+		return
+	}
 	id, _ := strconv.Atoi(params["id"])
 	confirm := params["confirm"]
 	if confirm == "YES" {
@@ -1148,6 +1161,8 @@ func main() {
 		)`,
 		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
 		`ALTER TABLE projects ADD COLUMN labels STRING`,
+		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
+		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -1178,7 +1193,10 @@ func main() {
 	}
 
 	for _, stat := range stats {
-		db.Exec(stat)
+		_, err := db.Exec(stat)
+		if err != nil {
+			logger.Error(err)
+		}
 	}
 
 	states := make(map[string]state)
@@ -1205,7 +1223,7 @@ func main() {
 		cr := &credential{id, description, value}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version, protected FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1219,13 +1237,14 @@ func main() {
 		var labels string
 		var stateName string
 		var version int
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version)
+		var protected int
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version, &protected)
 		if err != nil {
 			logger.Error(err)
 		}
 		p := &project{
 			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
-			states[stateName], version,
+			states[stateName], version, protected == 1,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
 			make(map[*project]state),

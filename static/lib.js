@@ -22,8 +22,6 @@ Element.prototype.appendChildren = function() {
 		if (!child) {
 		} else if (child instanceof Array) {
 			this.appendChildren.apply(this, child);
-		} else if (child instanceof _Widget.T) {
-			this.appendChild(child.element);
 		} else if (typeof child === "string") {
 			this.appendChild(document.createTextNode(child));
 		} else {
