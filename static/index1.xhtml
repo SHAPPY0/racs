@@ -32,6 +32,7 @@
 			height: 20em;
 			margin: 1em;
 			position: relative;
+			overflow: hidden;
 		}
 
 		.project.running {
@@ -97,19 +98,23 @@
 
 		.project .tasks {
 			position: absolute;
-			left: 0.5em;
-			right: 0.5em;
+			left: 0em;
+			right: 0em;
 			top: 8.75em;
-			height: 2.51em;
+			height: 2.5em;
 			overflow: auto;
+			border-top: 2px solid;
+			border-bottom: 2px solid;
 		}
 
 		.project .tasks .task {
 			display: flex;
+			height: 2.5em;
+			padding: 0.5em 0.25em 0 0.25em;
 		}
 
 		.project .tasks .task .type {
-			margin-left: 0.5em;
+			margin-left: 0.25em;
 			font-weight: bold;
 		}
 
@@ -729,7 +734,7 @@
 				task.icon = create("i");
 				task.state = create("span.icon", task.icon);
 				var time = result.time.split(" ");
-				task.box = create("div.task", {style: "margin-top:2px;height:2.5em;border:1px solid;", "on-click": showTaskLogs.bind(result)},
+				task.box = create("div.task", {"on-click": showTaskLogs.bind(result)},
 					create("span.state", task.state),
 					create("span.type", result.type),
 					create("span.time", time[0], " ", time[1], " ")
@@ -741,24 +746,24 @@
 				project.tasks.scrollIntoView(false);
 			}
 			task.icon.classList = "fas";
-			task.box.classList = "task notification mb-0 ml-2 p-2 is-light";
+			//task.box.classList = "task notification mb-0 ml-2 p-2 is-light";
 			var card = project.card;
 			card.classList = "project";
 			switch (result.state) {
 			case "RUNNING":
 				project.card.addClass("running");
-				task.box.addClass("is-info");
+				//task.box.addClass("is-info");
 				task.icon.addClass("fa-spinner");
 				task.icon.addClass("fa-spin");
 				break;
 			case "SUCCESS":
 				project.card.addClass("success");
-				task.box.addClass("is-success");
+				//task.box.addClass("is-success");
 				task.icon.addClass("fa-check-square");
 				break;
 			case "ERROR":
 				project.card.addClass("error");
-				task.box.addClass("is-danger");
+				//task.box.addClass("is-danger");
 				task.icon.addClass("fa-exclamation-triangle");
 				break;
 			}
