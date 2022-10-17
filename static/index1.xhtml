@@ -27,12 +27,26 @@
 	<style>
 		.project {
 			border-radius: 100%;
-			border: 2px solid rgb(22, 143, 255);
-			background: rgba(22, 143, 255, 0.2);
+			border: 2px solid;
 			width: 20em;
 			height: 20em;
 			margin: 1em;
 			position: relative;
+		}
+
+		.project.running {
+			border-color: deepskyblue;
+			background-color: rgba(0, 191, 255, 0.3);
+		}
+
+		.project.success {
+			border-color: chartreuse;
+			background-color: rgba(128, 255, 0, 0.3);
+		}
+
+		.project.error {
+			border-color: crimson;
+			background-color: rgba(220, 20, 60, 0.3);
 		}
 
 		.project .id {
@@ -63,7 +77,6 @@
 			bottom: 2em;
 			height: 3em;
 			border-radius: 5px;
-			background-color: rgb(22, 143, 255);
 			color: white;
 			padding-top: 0.5em;
 		}
@@ -728,17 +741,22 @@
 			}
 			task.icon.classList = "fas";
 			task.box.classList = "task notification mb-0 ml-2 p-2 is-light";
+			var card = project.card;
+			card.classList = "project";
 			switch (result.state) {
 			case "RUNNING":
+				project.card.addClass("running");
 				task.box.addClass("is-info");
 				task.icon.addClass("fa-spinner");
 				task.icon.addClass("fa-spin");
 				break;
 			case "SUCCESS":
+				project.card.addClass("success");
 				task.box.addClass("is-success");
 				task.icon.addClass("fa-check-square");
 				break;
 			case "ERROR":
+				project.card.addClass("error");
 				task.box.addClass("is-danger");
 				task.icon.addClass("fa-exclamation-triangle");
 				break;
@@ -827,7 +845,7 @@
 						labelTags.push(labelTag(trimmed));
 					}
 				});
-				var card = create("div.project",
+				project.card = create("div.project",
 					create("div.id", "#" + result.id),
 					create("div.title", result.name),
 					create("div.version", create("span", project.version)),
@@ -839,8 +857,8 @@
 						)
 					)
 				);
-				card.labels = labels;
-				container.appendChild(card);
+				project.card.labels = labels;
+				container.appendChild(project.card);
 			}
 			for (var key in result) {
 				switch (key) {
