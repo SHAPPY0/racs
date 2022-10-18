@@ -37,17 +37,17 @@
 
 		.project.running {
 			border-color: deepskyblue;
-			background-color: rgba(0, 191, 255, 0.3);
+			background-color: rgba(0, 191, 255, 0.2);
 		}
 
 		.project.success {
 			border-color:mediumseagreen;
-			background-color: rgba(60, 179, 114, 0.3);
+			background-color: rgba(60, 179, 114, 0.2);
 		}
 
 		.project.error {
 			border-color: crimson;
-			background-color: rgba(220, 20, 60, 0.3);
+			background-color: rgba(220, 20, 60, 0.2);
 		}
 
 		.project .id {
@@ -136,44 +136,74 @@
 	<div class="modal" id="create">
 		<div class="modal-background"/>
 		<form class="modal-card" action="/project/create" method="POST">
-			<header class="modal-card-head">task.state
+			<header class="modal-card-head">
 				<p class="modal-card-title">Create Project</p>
 				<button class="delete" aria-label="close" onclick="hideCreate()" type="reset"/>
 			</header>
 			<section class="modal-card-body">
 				<input type="hidden" name="redirect" value="/"/>
-				<div class="field">
-					<label class="label">Name</label>
-					<div class="control">
-						<input class="input" name="name"/>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Name</label>
 					</div>
-				</div>
-				<div class="field">
-					<label class="label">URL</label>
-					<div class="control">
-						<input class="input" name="url"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Branch</label>
-					<div class="control">
-						<input class="input" name="branch"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Destination</label>
-					<div class="control">
-						<div class="select" autocomplete="off">
-							<select name="destination" id="destination">
-								<option value=""/>
-							</select>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="name"/>
+							</div>
 						</div>
 					</div>
 				</div>
-				<div class="field">
-					<label class="label">Tag</label>
-					<div class="control">
-						<input class="input" name="tag"/>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">URL</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="url"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Branch</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="branch"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Destination</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<div class="select" autocomplete="off">
+									<select name="destination" id="destination">
+										<option value=""/>
+									</select>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Tag</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="tag"/>
+							</div>
+						</div>
 					</div>
 				</div>
 			</section>
@@ -206,62 +236,116 @@
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
 						<input type="hidden" name="id" id="update_id" value=""/>
-						<div class="field">
-							<label class="label">Name</label>
-							<div class="control">
-								<input class="input" name="name" id="update_name"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Name</label>
 							</div>
-						</div>
-						<div class="field">
-							<label class="label">Labels</label>
-							<div class="control">
-								<input class="input" type="text" name="labels" id="update_labels"/>
-							</div>
-						</div>
-						<div class="field">
-							<label class="label">URL</label>
-							<div class="control">
-								<input class="input" name="url" id="update_url"/>
-							</div>
-						</div>
-						<div class="field">
-							<label class="label">Branch</label>
-							<div class="control">
-								<input class="input" name="branch" id="update_branch"/>
-							</div>
-						</div>
-						<div class="field">
-							<label class="label">Destination</label>
-							<div class="control">
-								<div class="select" autocomplete="off">
-									<select name="destination" id="update_destination">
-										<option value=""/>
-									</select>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="name" id="update_name"/>
+									</div>
 								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">Tag</label>
-							<div class="control">
-								<input class="input" name="tag" id="update_tag"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Labels</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" type="text" name="labels" id="update_labels"/>
+									</div>
+								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">BuildSpec</label>
-							<div class="control">
-								<input class="input" name="buildSpec" id="update_buildSpec"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">URL</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="url" id="update_url"/>
+									</div>
+								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">PackageSpec</label>
-							<div class="control">
-								<input class="input" name="packageSpec" id="update_packageSpec"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Branch</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="branch" id="update_branch"/>
+									</div>
+								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">Protected</label>
-							<div class="control">
-								<input class="checkbox" type="checkbox" name="protected" id="update_protected"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Destination</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<div class="select" autocomplete="off">
+											<select name="destination" id="update_destination">
+												<option value=""/>
+											</select>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Tag</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="tag" id="update_tag"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">BuildSpec</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="buildSpec" id="update_buildSpec"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">PackageSpec</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="packageSpec" id="update_packageSpec"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Protected</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="checkbox" type="checkbox" name="protected" id="update_protected"/>
+									</div>
+								</div>
 							</div>
 						</div>
 					</section>
@@ -275,8 +359,10 @@
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
 						<input type="hidden" name="id" id="upload_id" value=""/>
-						<div class="field">
-							<label class="label">Type</label>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Type</label>
+							</div>
 							<div class="field-body" style="clear:both;">
 								<div class="field is-narrow">
 									<div class="control">
@@ -293,10 +379,16 @@
 								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">Name</label>
-							<div class="control">
-								<input class="input" name="name" id="uploadname"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Name</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="name" id="uploadname"/>
+									</div>
+								</div>
 							</div>
 						</div>
 					</section>
@@ -384,16 +476,28 @@
 			</header>
 			<section class="modal-card-body">
 				<input type="hidden" name="redirect" value="/"/>
-				<div class="field">
-					<label class="label">User Name</label>
-					<div class="control">
-						<input class="input" name="username"/>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">User Name</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="username"/>
+							</div>
+						</div>
 					</div>
 				</div>
-				<div class="field">
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
 					<label class="label">Password</label>
-					<div class="control">
-						<input class="input" type="password" name="password"/>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" type="password" name="password"/>
+							</div>
+						</div>
 					</div>
 				</div>
 			</section>
