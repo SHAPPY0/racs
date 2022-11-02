@@ -380,16 +380,16 @@ func projectRoutine(p *project) {
 	}
 }
 
-func projectCreate(name, url, branch, destination, tag string) *project {
+func projectCreate(name, url, branch, destination, tag string, labels string) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, buildSpec, packageSpec, state, version)
-		VALUES(?, ?, ?, ?, ?, 'BuildSpec', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, packageSpec, state, version)
+		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, "", url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
+		id, name, labels, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
 		CREATE_SUCCESS, 0, false,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
@@ -687,7 +687,7 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.protected = params["protected"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
 			buildSpec = ?, packageSpec = ?, protected = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id, p.protected)
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.protected, p.id)
 		event(map[string]interface{}{
 			"event":       "project/update",
 			"id":          p.id,
@@ -721,7 +721,8 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params
 	branch := params["branch"]
 	destination := params["destination"]
 	tag := params["tag"]
-	p := projectCreate(name, url, branch, destination, tag)
+	labels := params["labels"]
+	p := projectCreate(name, url, branch, destination, tag, labels)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
 		w.Header().Add("Location", redirect)
@@ -1161,6 +1162,7 @@ func main() {
 		)`,
 		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
 		`ALTER TABLE projects ADD COLUMN labels STRING`,
+		`UPDATE projects SET labels='' WHERE labels IS NULL`,
 		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
 		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
 		`CREATE TABLE IF NOT EXISTS tasks(

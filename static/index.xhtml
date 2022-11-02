@@ -5,6 +5,7 @@
 	<link rel="stylesheet" href="/bulma.min.css"/>
 	<link rel="stylesheet" href="/bulmaswatch.min.css"/>
 	<link rel="stylesheet" href="/css/all.min.css"/>
+	<link rel="stylesheet" href="/css/tabler-icons.min.css"/>
 	<script src="/lib.js" type="text/javascript"/>
 	<script src="/ansi_up.js" type="text/javascript"/>
 	<link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png"/>
@@ -24,6 +25,113 @@
 	<meta name="msapplication-TileColor" content="#ffffff"/>
 	<meta name="msapplication-TileImage" content="/ms-icon-144x144.png"/>
 	<meta name="theme-color" content="#ffffff"/>
+	<style>
+		.project {
+			border-radius: 100%;
+			border: 2px solid;
+			width: 20em;
+			height: 20em;
+			margin: 1em;
+			position: relative;
+			overflow: hidden;
+		}
+
+		.project.running {
+			border-color: deepskyblue;
+			background-color: rgba(0, 191, 255, 0.2);
+		}
+
+		.project.success {
+			border-color:mediumseagreen;
+			background-color: rgba(60, 179, 114, 0.2);
+		}
+
+		.project.error {
+			border-color: crimson;
+			background-color: rgba(220, 20, 60, 0.2);
+		}
+
+		.project .id {
+			position: absolute;
+			font-size: 130%;
+			font-weight: bold;
+			text-align: center;
+			left: 7em;
+			right: 7em;
+			top: 1em;
+		}
+
+		.project .title {
+			position: absolute;
+			font-size: 130%;
+			font-weight: bold;
+			text-align: center;
+			left: 2em;
+			right: 2em;
+			top: 2.5em;
+		}
+
+		.project .version {
+			position: absolute;
+			text-align: center;
+			left: 8em;
+			right: 8em;
+			bottom: 2.5em;
+			height: 2.5em;
+			border-radius: 5px;
+			color: white;
+			background-color: darkblue;
+			padding-top: 0.25em;
+		}
+
+		.project .version span {
+			font-size: 120%;
+		}
+
+		.project .tags {
+			position: absolute;
+			text-align: center;
+			display: block;
+			left: 2em;
+			right: 2em;
+			top: 6.5em;
+		}
+
+		.project .tasks {
+			position: absolute;
+			left: 0em;
+			right: 0em;
+			top: 8.75em;
+			height: 2.5em;
+			overflow: auto;
+			border-top: 2px solid;
+			border-bottom: 2px solid;
+		}
+
+		.project .tasks .task {
+			display: flex;
+			height: 2.5em;
+			padding: 0.5em 0.25em 0 0.25em;
+		}
+
+		.project .tasks .task .type {
+			margin-left: 0.25em;
+			font-weight: bold;
+		}
+
+		.project .tasks .task .time {
+			flex-grow: 1;
+			text-align: right;
+		}
+
+		.project .build-menu {
+			position: absolute;
+			text-align: center;
+			left: 5em;
+			right: 5em;
+			top: 12em;
+		}
+	</style>
 </head>
 <body class="has-background-warning-light" style="min-height:100vh;padding:0;">
 	<div class="modal" id="create">
@@ -35,38 +143,80 @@
 			</header>
 			<section class="modal-card-body">
 				<input type="hidden" name="redirect" value="/"/>
-				<div class="field">
-					<label class="label">Name</label>
-					<div class="control">
-						<input class="input" name="name"/>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Name</label>
 					</div>
-				</div>
-				<div class="field">
-					<label class="label">URL</label>
-					<div class="control">
-						<input class="input" name="url"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Branch</label>
-					<div class="control">
-						<input class="input" name="branch"/>
-					</div>
-				</div>
-				<div class="field">
-					<label class="label">Destination</label>
-					<div class="control">
-						<div class="select" autocomplete="off">
-							<select name="destination" id="destination">
-								<option value=""/>
-							</select>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="name"/>
+							</div>
 						</div>
 					</div>
 				</div>
-				<div class="field">
-					<label class="label">Tag</label>
-					<div class="control">
-						<input class="input" name="tag"/>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Labels</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="labels"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">URL</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="url"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Branch</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="branch"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Destination</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<div class="select" autocomplete="off">
+									<select name="destination" id="destination">
+										<option value=""/>
+									</select>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Tag</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="tag"/>
+							</div>
+						</div>
 					</div>
 				</div>
 			</section>
@@ -99,62 +249,116 @@
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
 						<input type="hidden" name="id" id="update_id" value=""/>
-						<div class="field">
-							<label class="label">Name</label>
-							<div class="control">
-								<input class="input" name="name" id="update_name"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Name</label>
 							</div>
-						</div>
-						<div class="field">
-							<label class="label">Labels</label>
-							<div class="control">
-								<input class="input" type="text" name="labels" id="update_labels"/>
-							</div>
-						</div>
-						<div class="field">
-							<label class="label">URL</label>
-							<div class="control">
-								<input class="input" name="url" id="update_url"/>
-							</div>
-						</div>
-						<div class="field">
-							<label class="label">Branch</label>
-							<div class="control">
-								<input class="input" name="branch" id="update_branch"/>
-							</div>
-						</div>
-						<div class="field">
-							<label class="label">Destination</label>
-							<div class="control">
-								<div class="select" autocomplete="off">
-									<select name="destination" id="update_destination">
-										<option value=""/>
-									</select>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="name" id="update_name"/>
+									</div>
 								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">Tag</label>
-							<div class="control">
-								<input class="input" name="tag" id="update_tag"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Labels</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" type="text" name="labels" id="update_labels"/>
+									</div>
+								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">BuildSpec</label>
-							<div class="control">
-								<input class="input" name="buildSpec" id="update_buildSpec"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">URL</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="url" id="update_url"/>
+									</div>
+								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">PackageSpec</label>
-							<div class="control">
-								<input class="input" name="packageSpec" id="update_packageSpec"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Branch</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="branch" id="update_branch"/>
+									</div>
+								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">Protected</label>
-							<div class="control">
-								<input class="checkbox" type="checkbox" name="protected" id="update_protected"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Destination</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<div class="select" autocomplete="off">
+											<select name="destination" id="update_destination">
+												<option value=""/>
+											</select>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Tag</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="tag" id="update_tag"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">BuildSpec</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="buildSpec" id="update_buildSpec"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">PackageSpec</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="packageSpec" id="update_packageSpec"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Protected</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="checkbox" type="checkbox" name="protected" id="update_protected"/>
+									</div>
+								</div>
 							</div>
 						</div>
 					</section>
@@ -168,8 +372,10 @@
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
 						<input type="hidden" name="id" id="upload_id" value=""/>
-						<div class="field">
-							<label class="label">Type</label>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Type</label>
+							</div>
 							<div class="field-body" style="clear:both;">
 								<div class="field is-narrow">
 									<div class="control">
@@ -186,10 +392,16 @@
 								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label class="label">Name</label>
-							<div class="control">
-								<input class="input" name="name" id="uploadname"/>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Name</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="name" id="uploadname"/>
+									</div>
+								</div>
 							</div>
 						</div>
 					</section>
@@ -277,16 +489,28 @@
 			</header>
 			<section class="modal-card-body">
 				<input type="hidden" name="redirect" value="/"/>
-				<div class="field">
-					<label class="label">User Name</label>
-					<div class="control">
-						<input class="input" name="username"/>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">User Name</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="username"/>
+							</div>
+						</div>
 					</div>
 				</div>
-				<div class="field">
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
 					<label class="label">Password</label>
-					<div class="control">
-						<input class="input" type="password" name="password"/>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" type="password" name="password"/>
+							</div>
+						</div>
 					</div>
 				</div>
 			</section>
@@ -627,32 +851,36 @@
 				task.icon = create("i");
 				task.state = create("span.icon", task.icon);
 				var time = result.time.split(" ");
-				task.box = create("div", {
-					style: "display: inline-block; border: 2px solid;",
-					"on-click": showTaskLogs.bind(result)
-				},
-					create("div.mb-2", task.state, " ", create("span", result.type)),
-					create("div", time[0], " ", time[1]),
+				task.box = create("div.task", {"on-click": showTaskLogs.bind(result)},
+					create("span.state", task.state),
+					create("span.type", result.type),
+					create("span.time", time[0], " ", time[1], " ")
 				);
-				project.tasks.appendChild(create("span", {style: "max-width: 20%;"}, task.box));
+				project.tasks.appendChild(task.box);
 				while (project.tasks.children.length > 5) {
 					project.tasks.removeChild(project.tasks.firstChild);
 				}
+				project.tasks.scrollIntoView(false);
 			}
 			task.icon.classList = "fas";
-			task.box.classList = "notification mb-0 ml-2 p-2 is-light";
+			//task.box.classList = "task notification mb-0 ml-2 p-2 is-light";
+			var card = project.card;
+			card.classList = "project";
 			switch (result.state) {
 			case "RUNNING":
-				task.box.addClass("is-info");
+				project.card.addClass("running");
+				//task.box.addClass("is-info");
 				task.icon.addClass("fa-spinner");
 				task.icon.addClass("fa-spin");
 				break;
 			case "SUCCESS":
-				task.box.addClass("is-success");
+				project.card.addClass("success");
+				//task.box.addClass("is-success");
 				task.icon.addClass("fa-check-square");
 				break;
 			case "ERROR":
-				task.box.addClass("is-danger");
+				project.card.addClass("error");
+				//task.box.addClass("is-danger");
 				task.icon.addClass("fa-exclamation-triangle");
 				break;
 			}
@@ -710,7 +938,7 @@
 			if (!project) {
 				project = projects[result.id] = {
 					state: create("span.tag"),
-					tasks: create("div", {style: "white-space: nowrap; overflow: auto;"}),
+					tasks: create("div"),
 					version: create("span")
 				};
 				project.name = result.name;
@@ -740,28 +968,20 @@
 						labelTags.push(labelTag(trimmed));
 					}
 				});
-				var card = create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
-					{style: "flex-grow: 1; flex-basis: 0;"},
-					create("span.is-flex-grow-1", {style: "display:inline-block"},
-						create("div.mb-2.has-text-weight-bold.is-size-6", "#" + result.id + " " + result.name, labelTags),
-						create("div",
-							buildMenu,
-							" ",
-							create("button.button.is-small", {"on-click": showSettings.bind(result)},
-								create("span.icon", create("i.fas.fa-tools"))
-							)
+				project.card = create("div.project",
+					create("div.id", "#" + result.id),
+					create("div.title", result.name),
+					create("div.version", create("span", project.version)),
+					create("div.tags", labelTags),
+					create("div.tasks", project.tasks),
+					create("div.build-menu", buildMenu, " ",
+						create("button", {"on-click": showSettings.bind(result)},
+							create("span.icon", create("i.fas.fa-tools"))
 						)
-					),
-					create("span", {style: "display:inline-block;text-align:center;"},
-						create("div", "Version"),
-						create("span.tag.is-primary.is-medium", project.version)
-					),
-					//create("span", {style: "display:inline-block"},
-						project.tasks
-					//)
+					)
 				);
-				card.labels = labels;
-				container.appendChild(card);
+				project.card.labels = labels;
+				container.appendChild(project.card);
 			}
 			for (var key in result) {
 				switch (key) {
