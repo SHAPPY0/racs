@@ -884,6 +884,8 @@
 				task.icon.addClass("fa-exclamation-triangle");
 				break;
 			}
+			var container = project.tasks.parentNode;
+			container.scrollTop = container.scrollHeight;
 		}
 
 		var labels = {};
