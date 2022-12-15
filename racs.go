@@ -98,8 +98,11 @@ type registry struct {
 }
 
 type taskRequest struct {
-	state   state
-	trigger string
+	state  state
+	url    string
+	branch string
+	commit string
+	tag    string
 }
 
 type credential struct {
@@ -128,6 +131,7 @@ type project struct {
 	credentials map[string]*credential
 	prepareDep  *project
 	packageDep  *project
+	commit      string
 }
 
 type broker struct {
@@ -148,6 +152,7 @@ var clients = &broker{
 	make(chan chan []byte),
 	make(map[chan []byte]bool),
 }
+var defaultRequest = taskRequest{NONE, "", "", "", ""}
 
 func event(event map[string]interface{}) {
 	bytes, _ := json.Marshal(event)
@@ -189,15 +194,19 @@ func registryLogin(name string) string {
 	return r.url
 }
 
-func (p *project) buildFrom(state state, trigger string) {
-	p.queue <- taskRequest{state, trigger}
+func (p *project) buildFrom(state state, trigger taskRequest) {
+	p.queue <- taskRequest{state, trigger.url, trigger.branch, trigger.commit, trigger.tag}
 }
 
-func projectEnvironment(p *project, trigger string) string {
+func projectEnvironment(p *project, request taskRequest) string {
 	filename := fmt.Sprintf("%s/%d/environment", projectAbs, p.id)
 	f, _ := os.Create(filename)
-	fmt.Fprintf(f, "RACS_TRIGGER=%s\n", trigger)
+	fmt.Fprintf(f, "RACS_TRIGGER=%s\n", request.tag)
 	fmt.Fprintf(f, "RACS_VERSION=%d\n", p.version+1)
+	fmt.Fprintf(f, "RACS_TRIGGER_URL=%s\n", request.url)
+	fmt.Fprintf(f, "RACS_TRIGGER_BRANCH=%s\n", request.branch)
+	fmt.Fprintf(f, "RACS_TRIGGER_COMMIT=%s\n", request.commit)
+	fmt.Fprintf(f, "RACS_TRIGGER_TAG=%s\n", request.tag)
 	for name, cr := range p.credentials {
 		fmt.Fprintf(f, "%s=%s\n", name, cr.value)
 	}
@@ -210,7 +219,6 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d waiting for tasks", p.id)
 		request := <-p.queue
 		state := request.state
-		trigger := request.trigger
 		logger.Infof("Project %d received task %s", p.id, state.String())
 		command := ""
 		args := []string{}
@@ -235,9 +243,7 @@ func projectRoutine(p *project) {
 		case BUILDING:
 			command = "podman"
 			args = []string{"run", "--network=host", "--rm=true",
-				//"-e", fmt.Sprintf("RACS_TRIGGER=%s", trigger),
-				//"-e", fmt.Sprintf("RACS_VERSION=%d", p.version+1),
-				"--env-file", projectEnvironment(p, trigger),
+				"--env-file", projectEnvironment(p, request),
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--read-only", fmt.Sprintf("builder-%d", p.id),
 			}
@@ -246,7 +252,6 @@ func projectRoutine(p *project) {
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
 			args = []string{"build",
 				"--pull=newer",
-				//"--env-file", projectEnvironment(p, trigger),
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--squash",
 				"-f", spec,
@@ -330,13 +335,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			p.buildFrom(CLEANING, trigger)
+			p.buildFrom(CLEANING, request)
 		case CLEAN_SUCCESS:
-			p.buildFrom(CLONING, trigger)
+			p.buildFrom(CLONING, request)
 		case CLONE_SUCCESS:
-			p.buildFrom(PREPARING, trigger)
+			p.buildFrom(PREPARING, request)
 		case PREPARE_SUCCESS:
-			p.buildFrom(PULLING, trigger)
+			p.buildFrom(PULLING, request)
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -351,12 +356,16 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				p.buildFrom(PREPARING, trigger)
+				p.buildFrom(PREPARING, request)
 			} else {
-				p.buildFrom(BUILDING, trigger)
+				p.buildFrom(BUILDING, request)
 			}
 		case BUILD_SUCCESS:
-			p.buildFrom(PACKAGING, trigger)
+			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
+			if err == nil {
+				p.commit = strings.TrimSpace(string(out))
+			}
+			p.buildFrom(PACKAGING, request)
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -365,11 +374,11 @@ func projectRoutine(p *project) {
 				"id":      p.id,
 				"version": p.version,
 			})
-			p.buildFrom(PUSHING, trigger)
+			p.buildFrom(PUSHING, request)
 		case PUSH_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			for p2, state2 := range p.triggers {
-				p2.buildFrom(state2, tag)
+				p2.buildFrom(state2, taskRequest{state, p.url, p.branch, p.commit, tag})
 			}
 		case DELETE_SUCCESS:
 			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
@@ -395,7 +404,7 @@ func projectCreate(name, url, branch, destination, tag string, labels string) *p
 		make(chan taskRequest, 10),
 		make(map[*project]state),
 		make(map[string]*credential),
-		nil, nil,
+		nil, nil, "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -877,19 +886,19 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	}
 	switch stage {
 	case "clean":
-		p.buildFrom(CLEANING, "")
+		p.buildFrom(CLEANING, defaultRequest)
 	case "clone":
-		p.buildFrom(CLONING, "")
+		p.buildFrom(CLONING, defaultRequest)
 	case "prepare":
-		p.buildFrom(PREPARING, "")
+		p.buildFrom(PREPARING, defaultRequest)
 	case "pull":
-		p.buildFrom(PULLING, "")
+		p.buildFrom(PULLING, defaultRequest)
 	case "build":
-		p.buildFrom(BUILDING, "")
+		p.buildFrom(BUILDING, defaultRequest)
 	case "package":
-		p.buildFrom(PACKAGING, "")
+		p.buildFrom(PACKAGING, defaultRequest)
 	case "push":
-		p.buildFrom(PUSHING, "")
+		p.buildFrom(PUSHING, defaultRequest)
 	}
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
@@ -902,7 +911,7 @@ func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params
 	id, _ := strconv.Atoi(params["id"])
 	confirm := params["confirm"]
 	if confirm == "YES" {
-		projects[id].buildFrom(DELETING, "")
+		projects[id].buildFrom(DELETING, defaultRequest)
 	}
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
@@ -1251,7 +1260,11 @@ func main() {
 			make(chan taskRequest, 10),
 			make(map[*project]state),
 			make(map[string]*credential),
-			nil, nil,
+			nil, nil, "",
+		}
+		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
+		if err == nil {
+			p.commit = strings.TrimSpace(string(out))
 		}
 		fmt.Printf("%+v\n", p)
 		projects[p.id] = p
