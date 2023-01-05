@@ -94,11 +94,21 @@ type registry struct {
 	user     string
 	password string
 	login    time.Time
+	timeout  int
 }
 
 type taskRequest struct {
-	state   state
-	trigger string
+	state  state
+	url    string
+	branch string
+	commit string
+	tag    string
+}
+
+type credential struct {
+	id          int
+	description string
+	value       string
 }
 
 type project struct {
@@ -114,11 +124,14 @@ type project struct {
 	buildHash   []byte
 	state       state
 	version     int
+	protected   bool
 	tasks       []*task
 	queue       chan taskRequest
 	triggers    map[*project]state
+	credentials map[string]*credential
 	prepareDep  *project
 	packageDep  *project
+	commit      string
 }
 
 type broker struct {
@@ -130,6 +143,7 @@ type broker struct {
 
 var db *sql.DB
 var registries = map[string]*registry{}
+var credentials = map[int]*credential{}
 var projects = map[int]*project{}
 var projectAbs, _ = filepath.Abs("projects")
 var clients = &broker{
@@ -138,11 +152,30 @@ var clients = &broker{
 	make(chan chan []byte),
 	make(map[chan []byte]bool),
 }
+var defaultRequest = taskRequest{NONE, "", "", "", ""}
 
-func registryCreate(name, url, user, password string) *registry {
-	db.Exec(`REPLACE INTO registries(name, url, user, password) VALUES(?, ?, ?, ?)`, name, url, user, password)
+func event(event map[string]interface{}) {
+	bytes, _ := json.Marshal(event)
+	clients.events <- bytes
+}
+
+func registryList() []map[string]interface{} {
+	result := make([]map[string]interface{}, 0)
+	for name, r := range registries {
+		result = append(result, map[string]interface{}{
+			"name":    name,
+			"url":     r.url,
+			"user":    r.user,
+			"timeout": r.timeout,
+		})
+	}
+	return result
+}
+
+func registryCreate(name, url, user, password string, timeout int) *registry {
+	db.Exec(`REPLACE INTO registries(name, url, user, password, timeout) VALUES(?, ?, ?, ?)`, name, url, user, password, timeout)
 	logger.Infof("Registry created %s %s %s ******", name, url, user)
-	r := &registry{name, url, user, password, time.Unix(0, 0)}
+	r := &registry{name, url, user, password, time.Unix(0, 0), timeout}
 	registries[r.name] = r
 	return r
 }
@@ -152,7 +185,7 @@ func registryLogin(name string) string {
 	if r == nil {
 		return ""
 	}
-	if time.Since(r.login).Hours() > 1 {
+	if time.Since(r.login).Minutes() > float64(r.timeout) {
 		if len(r.user) > 0 {
 			exec.Command("podman", "login", r.url, "-u", r.user, "-p", r.password).Run()
 		}
@@ -161,13 +194,24 @@ func registryLogin(name string) string {
 	return r.url
 }
 
-func (p *project) buildFrom(state state, trigger string) {
-	p.queue <- taskRequest{state, trigger}
+func (p *project) buildFrom(state state, trigger taskRequest) {
+	p.queue <- taskRequest{state, trigger.url, trigger.branch, trigger.commit, trigger.tag}
 }
 
-func projectEvent(event map[string]interface{}) {
-	bytes, _ := json.Marshal(event)
-	clients.events <- bytes
+func projectEnvironment(p *project, request taskRequest) string {
+	filename := fmt.Sprintf("%s/%d/environment", projectAbs, p.id)
+	f, _ := os.Create(filename)
+	fmt.Fprintf(f, "RACS_TRIGGER=%s\n", request.tag)
+	fmt.Fprintf(f, "RACS_VERSION=%d\n", p.version+1)
+	fmt.Fprintf(f, "RACS_TRIGGER_URL=%s\n", request.url)
+	fmt.Fprintf(f, "RACS_TRIGGER_BRANCH=%s\n", request.branch)
+	fmt.Fprintf(f, "RACS_TRIGGER_COMMIT=%s\n", request.commit)
+	fmt.Fprintf(f, "RACS_TRIGGER_TAG=%s\n", request.tag)
+	for name, cr := range p.credentials {
+		fmt.Fprintf(f, "%s=%s\n", name, cr.value)
+	}
+	f.Close()
+	return filename
 }
 
 func projectRoutine(p *project) {
@@ -175,7 +219,6 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d waiting for tasks", p.id)
 		request := <-p.queue
 		state := request.state
-		trigger := request.trigger
 		logger.Infof("Project %d received task %s", p.id, state.String())
 		command := ""
 		args := []string{}
@@ -189,7 +232,7 @@ func projectRoutine(p *project) {
 		case PREPARING:
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
-			args = []string{"build", "--squash-all", "-f", spec, "-t", fmt.Sprintf("builder-%d", p.id)}
+			args = []string{"build", "--pull=newer", "--squash-all", "-f", spec, "-t", fmt.Sprintf("builder-%d", p.id)}
 			if p.prepareDep != nil {
 				args = append(args, "--from", fmt.Sprintf("project-%d", p.prepareDep.id))
 			}
@@ -200,14 +243,20 @@ func projectRoutine(p *project) {
 		case BUILDING:
 			command = "podman"
 			args = []string{"run", "--network=host", "--rm=true",
-				"-e", fmt.Sprintf("RACS_TRIGGER=%s", trigger),
+				"--env-file", projectEnvironment(p, request),
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--read-only", fmt.Sprintf("builder-%d", p.id),
 			}
 		case PACKAGING:
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
-			args = []string{"build", "-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id), "--squash", "-f", spec, "-t", fmt.Sprintf("project-%d", p.id)}
+			args = []string{"build",
+				"--pull=newer",
+				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+				"--squash",
+				"-f", spec,
+				"-t", fmt.Sprintf("project-%d", p.id),
+			}
 			if p.packageDep != nil {
 				args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
 			}
@@ -241,7 +290,7 @@ func projectRoutine(p *project) {
 			if len(p.tasks) > 5 {
 				p.tasks = p.tasks[1:]
 			}
-			projectEvent(map[string]interface{}{
+			event(map[string]interface{}{
 				"event":   "task/create",
 				"project": p.id,
 				"id":      t.id,
@@ -271,12 +320,12 @@ func projectRoutine(p *project) {
 			logger.Infof("Task %d completed", t.id)
 			db.Exec(`UPDATE projects SET state = ? WHERE id = ?`, p.state.String(), p.id)
 			db.Exec(`UPDATE tasks SET state = ? WHERE id = ?`, t.state, t.id)
-			projectEvent(map[string]interface{}{
+			event(map[string]interface{}{
 				"event": "project/state",
 				"id":    p.id,
 				"state": p.state.String(),
 			})
-			projectEvent(map[string]interface{}{
+			event(map[string]interface{}{
 				"event":   "task/state",
 				"project": p.id,
 				"id":      t.id,
@@ -286,13 +335,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			p.buildFrom(CLEANING, trigger)
+			p.buildFrom(CLEANING, request)
 		case CLEAN_SUCCESS:
-			p.buildFrom(CLONING, trigger)
+			p.buildFrom(CLONING, request)
 		case CLONE_SUCCESS:
-			p.buildFrom(PREPARING, trigger)
+			p.buildFrom(PREPARING, request)
 		case PREPARE_SUCCESS:
-			p.buildFrom(PULLING, trigger)
+			p.buildFrom(PULLING, request)
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -307,25 +356,29 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				p.buildFrom(PREPARING, trigger)
+				p.buildFrom(PREPARING, request)
 			} else {
-				p.buildFrom(BUILDING, trigger)
+				p.buildFrom(BUILDING, request)
 			}
 		case BUILD_SUCCESS:
-			p.buildFrom(PACKAGING, trigger)
+			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
+			if err == nil {
+				p.commit = strings.TrimSpace(string(out))
+			}
+			p.buildFrom(PACKAGING, request)
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
-			projectEvent(map[string]interface{}{
+			event(map[string]interface{}{
 				"event":   "project/version",
 				"id":      p.id,
 				"version": p.version,
 			})
-			p.buildFrom(PUSHING, trigger)
+			p.buildFrom(PUSHING, request)
 		case PUSH_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			for p2, state2 := range p.triggers {
-				p2.buildFrom(state2, tag)
+				p2.buildFrom(state2, taskRequest{state, p.url, p.branch, p.commit, tag})
 			}
 		case DELETE_SUCCESS:
 			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
@@ -336,25 +389,26 @@ func projectRoutine(p *project) {
 	}
 }
 
-func projectCreate(name, url, branch, destination, tag string) *project {
+func projectCreate(name, url, branch, destination, tag string, labels string) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, buildSpec, packageSpec, state, version)
-		VALUES(?, ?, ?, ?, ?, 'BuildSpec', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, packageSpec, state, version)
+		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, "", url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
-		CREATE_SUCCESS, 0,
+		id, name, labels, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
+		CREATE_SUCCESS, 0, false,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make(map[*project]state),
-		nil, nil,
+		make(map[string]*credential),
+		nil, nil, "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
-	projectEvent(map[string]interface{}{
+	event(map[string]interface{}{
 		"event":       "project/create",
 		"id":          p.id,
 		"name":        p.name,
@@ -367,6 +421,7 @@ func projectCreate(name, url, branch, destination, tag string) *project {
 		"packageSpec": p.packageSpec,
 		"state":       p.state.String(),
 		"version":     p.version,
+		"protected":   p.protected,
 	})
 	return p
 }
@@ -399,6 +454,12 @@ func projectList() []map[string]interface{} {
 				target.id, state.String(),
 			})
 		}
+		environment := make([]interface{}, 0)
+		for name, credential := range p.credentials {
+			environment = append(environment, []interface{}{
+				name, credential.id, credential.description,
+			})
+		}
 		result = append(result, map[string]interface{}{
 			"id":          id,
 			"name":        p.name,
@@ -412,7 +473,9 @@ func projectList() []map[string]interface{} {
 			"state":       p.state.String(),
 			"tasks":       tasks,
 			"version":     p.version,
+			"protected":   p.protected,
 			"triggers":    triggers,
+			"environment": environment,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -466,6 +529,38 @@ func checkLogin(u *user, role string, w http.ResponseWriter, path string, params
 	}
 	renderLogin(w, path, params)
 	return true
+}
+
+func handleEvents(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	events := make(chan []byte)
+	clients.register <- events
+	defer func() {
+		clients.unregister <- events
+	}()
+	notify := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notify
+		clients.unregister <- events
+	}()
+	j, _ := json.Marshal(map[string]interface{}{
+		"event":    "project/list",
+		"projects": projectList(),
+	})
+	fmt.Fprintf(w, "data: %s\n\n", j)
+	flusher.Flush()
+	for {
+		fmt.Fprintf(w, "data: %s\n\n", <-events)
+		flusher.Flush()
+	}
 }
 
 func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
@@ -559,38 +654,6 @@ func handleProjectList(w http.ResponseWriter, r *http.Request, u *user, params m
 	w.Write(j)
 }
 
-func handleProjectEvents(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	events := make(chan []byte)
-	clients.register <- events
-	defer func() {
-		clients.unregister <- events
-	}()
-	notify := w.(http.CloseNotifier).CloseNotify()
-	go func() {
-		<-notify
-		clients.unregister <- events
-	}()
-	j, _ := json.Marshal(map[string]interface{}{
-		"event":    "project/list",
-		"projects": projectList(),
-	})
-	fmt.Fprintf(w, "data: %s\n\n", j)
-	flusher.Flush()
-	for {
-		fmt.Fprintf(w, "data: %s\n\n", <-events)
-		flusher.Flush()
-	}
-}
-
 func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	id, _ := strconv.Atoi(params["id"])
 	p := projects[id]
@@ -630,10 +693,11 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.tag = params["tag"]
 		p.buildSpec = filepath.Clean(params["buildSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
+		p.protected = params["protected"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
-			buildSpec = ?, packageSpec = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.id)
-		projectEvent(map[string]interface{}{
+			buildSpec = ?, packageSpec = ?, protected = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.protected, p.id)
+		event(map[string]interface{}{
 			"event":       "project/update",
 			"id":          p.id,
 			"name":        p.name,
@@ -644,6 +708,7 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 			"buildSpec":   p.buildSpec,
 			"packageSpec": p.packageSpec,
 			"tag":         p.tag,
+			"protected":   p.protected,
 		})
 		redirect := params["redirect"]
 		if len(redirect) > 0 {
@@ -665,7 +730,8 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params
 	branch := params["branch"]
 	destination := params["destination"]
 	tag := params["tag"]
-	p := projectCreate(name, url, branch, destination, tag)
+	labels := params["labels"]
+	p := projectCreate(name, url, branch, destination, tag, labels)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
 		w.Header().Add("Location", redirect)
@@ -779,35 +845,73 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 	}
 }
 
+func handleProjectEnvironment(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/environment", params) {
+		return
+	}
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
+	p.credentials = make(map[string]*credential)
+	db.Exec(`DELETE FROM environments WHERE project = ?`, p.id)
+	environment := strings.FieldsFunc(params["environment"], func(c rune) bool {
+		return c == ','
+	})
+	for i := 0; i < len(environment); i += 2 {
+		name := environment[i]
+		crid, _ := strconv.Atoi(environment[i+1])
+		cr := credentials[crid]
+		if cr != nil {
+			p.credentials[name] = cr
+			db.Exec(`INSERT INTO environments(project, name, credential) VALUES(?, ?, ?)`, p.id, name, cr.id)
+		}
+	}
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(200)
+		w.Write([]byte("OK"))
+	}
+}
+
 func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	id, _ := strconv.Atoi(params["id"])
 	stage := params["stage"]
 	p := projects[id]
+	if p.protected && u.Name == "" {
+		w.WriteHeader(403)
+		w.Write([]byte("Unauthorized"))
+		return
+	}
 	switch stage {
 	case "clean":
-		p.buildFrom(CLEANING, "")
+		p.buildFrom(CLEANING, defaultRequest)
 	case "clone":
-		p.buildFrom(CLONING, "")
+		p.buildFrom(CLONING, defaultRequest)
 	case "prepare":
-		p.buildFrom(PREPARING, "")
+		p.buildFrom(PREPARING, defaultRequest)
 	case "pull":
-		p.buildFrom(PULLING, "")
+		p.buildFrom(PULLING, defaultRequest)
 	case "build":
-		p.buildFrom(BUILDING, "")
+		p.buildFrom(BUILDING, defaultRequest)
 	case "package":
-		p.buildFrom(PACKAGING, "")
+		p.buildFrom(PACKAGING, defaultRequest)
 	case "push":
-		p.buildFrom(PUSHING, "")
+		p.buildFrom(PUSHING, defaultRequest)
 	}
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
 }
 
 func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/delete", params) {
+		return
+	}
 	id, _ := strconv.Atoi(params["id"])
 	confirm := params["confirm"]
 	if confirm == "YES" {
-		projects[id].buildFrom(DELETING, "")
+		projects[id].buildFrom(DELETING, defaultRequest)
 	}
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
@@ -832,6 +936,13 @@ func handleTaskLogs(w http.ResponseWriter, r *http.Request, u *user, params map[
 	w.Write(bytes)
 }
 
+func handleRegistryList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	result := registryList()
+	w.Header().Add("Content-Type", "application/json")
+	j, _ := json.Marshal(result)
+	w.Write(j)
+}
+
 func handleRegistryCreate(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	if checkLogin(u, "admin", w, "/registry/create", params) {
 		return
@@ -840,7 +951,8 @@ func handleRegistryCreate(w http.ResponseWriter, r *http.Request, u *user, param
 	url := params["url"]
 	user := params["user"]
 	password := params["password"]
-	reg := registryCreate(name, url, user, password)
+	timeout, _ := strconv.Atoi(params["timeout"])
+	reg := registryCreate(name, url, user, password, timeout)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
 		w.Header().Add("Location", redirect)
@@ -851,40 +963,93 @@ func handleRegistryCreate(w http.ResponseWriter, r *http.Request, u *user, param
 	}
 }
 
+func handleRegistryUpdate(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/registry/update", params) {
+		return
+	}
+	name := params["name"]
+	reg := registries[name]
+	reg.url = params["url"]
+	reg.user = params["user"]
+	reg.password = params["password"]
+	reg.timeout, _ = strconv.Atoi(params["timeout"])
+	db.Exec(`UPDATE registries SET url = ?, user = ?, password = ?, timeout = ? WHERE name = ?`, reg.url, reg.user, reg.password, reg.timeout, reg.name)
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(201)
+		w.Write([]byte(reg.name))
+	}
+}
+
+func handleCredentialList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	result := make([]map[string]interface{}, 0)
+	for id, cr := range credentials {
+		result = append(result, map[string]interface{}{
+			"id":          id,
+			"description": cr.description,
+		})
+	}
+	w.Header().Add("Content-Type", "application/json")
+	j, _ := json.Marshal(result)
+	w.Write(j)
+}
+
+func handleCredentialCreate(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/credential/create", params) {
+		return
+	}
+	description := params["description"]
+	value := params["value"]
+	var id int
+	db.QueryRow(`INSERT INTO credentials(description, value) VALUES(?, ?) RETURNING id`, description, value).Scan(&id)
+	credentials[id] = &credential{id, description, value}
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(201)
+		w.Write([]byte(strconv.Itoa(id)))
+	}
+}
+
+func handleCredentialUpdate(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/credential/update", params) {
+		return
+	}
+	id, _ := strconv.Atoi(params["id"])
+	value := params["value"]
+	cr := credentials[id]
+	cr.value = value
+	db.Exec(`UPDATE credentials SET value = ? WHERE id = ?`, value, id)
+	redirect := params["redirect"]
+	if len(redirect) > 0 {
+		w.Header().Add("Location", redirect)
+		w.WriteHeader(303)
+	} else {
+		w.WriteHeader(200)
+		w.Write([]byte("OK"))
+	}
+}
+
+func handleCredentialDelete(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+}
+
+type handler func(w http.ResponseWriter, r *http.Request, u *user, params map[string]string)
+
+var handlers = map[string]handler{}
+
 func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, params map[string]string) bool {
-	switch path {
-	case "/user/current":
-		handleUserCurrent(w, r, u, params)
-	case "/user/login":
-		handleUserLogin(w, r, u, params)
-	case "/user/logout":
-		handleUserLogout(w, r, u, params)
-	case "/project/list":
-		handleProjectList(w, r, u, params)
-	case "/project/status":
-		handleProjectStatus(w, r, u, params)
-	case "/project/events":
-		handleProjectEvents(w, r, u, params)
-	case "/project/update":
-		handleProjectUpdate(w, r, u, params)
-	case "/project/triggers":
-		handleProjectTriggers(w, r, u, params)
-	case "/project/create":
-		handleProjectCreate(w, r, u, params)
-	case "/project/upload":
-		handleProjectUpload(w, r, u, params)
-	case "/project/build":
-		handleProjectBuild(w, r, u, params)
-	case "/project/delete":
-		handleProjectDelete(w, r, u, params)
-	case "/task/logs":
-		handleTaskLogs(w, r, u, params)
-	case "/registry/create":
-		handleRegistryCreate(w, r, u, params)
-	default:
+	handler := handlers[path]
+	if handler != nil {
+		handler(w, r, u, params)
+		return true
+	} else {
 		return false
 	}
-	return true
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -976,7 +1141,7 @@ func main() {
 		logger.Fatal(err)
 	}
 	defer db.Close()
-	//db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(1)
 
 	stats := []string{
 		`CREATE TABLE IF NOT EXISTS users(
@@ -991,6 +1156,7 @@ func main() {
 			user STRING,
 			password STRING
 		)`,
+		`ALTER TABLE registries ADD COLUMN timeout INTEGER`,
 		`CREATE TABLE IF NOT EXISTS projects(
 			id INTEGER PRIMARY KEY,
 			name STRING,
@@ -1005,6 +1171,9 @@ func main() {
 		)`,
 		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
 		`ALTER TABLE projects ADD COLUMN labels STRING`,
+		`UPDATE projects SET labels='' WHERE labels IS NULL`,
+		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
+		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -1022,10 +1191,23 @@ func main() {
 			target INTEGER,
 			state STRING
 		)`,
+		`CREATE TABLE IF NOT EXISTS credentials(
+			id INTEGER PRIMARY KEY,
+			description STRING,
+			value STRING
+		)`,
+		`CREATE TABLE IF NOT EXISTS environments(
+			project INTEGER,
+			name STRING,
+			credential INTEGER
+		)`,
 	}
 
 	for _, stat := range stats {
-		db.Exec(stat)
+		_, err := db.Exec(stat)
+		if err != nil {
+			logger.Error(err)
+		}
 	}
 
 	states := make(map[string]state)
@@ -1033,16 +1215,26 @@ func main() {
 		states[state.String()] = state
 	}
 
-	rows, err := db.Query(`SELECT name, url, user, password FROM registries`)
+	rows, err := db.Query(`SELECT name, url, user, password, timeout FROM registries`)
 	for rows.Next() {
 		var name string
 		var url string
 		var user string
 		var password string
-		rows.Scan(&name, &url, &user, &password)
-		registries[name] = &registry{name, url, user, password, time.Unix(0, 0)}
+		var timeout int
+		rows.Scan(&name, &url, &user, &password, &timeout)
+		registries[name] = &registry{name, url, user, password, time.Unix(0, 0), timeout}
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version FROM projects`)
+	rows, err = db.Query(`SELECT id, description, value FROM credentials`)
+	for rows.Next() {
+		var id int
+		var description string
+		var value string
+		rows.Scan(&id, &description, &value)
+		cr := &credential{id, description, value}
+		credentials[cr.id] = cr
+	}
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version, protected FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1056,15 +1248,25 @@ func main() {
 		var labels string
 		var stateName string
 		var version int
-		rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version)
+		var protected int
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version, &protected)
+		if err != nil {
+			logger.Error(err)
+		}
 		p := &project{
 			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
-			states[stateName], version,
+			states[stateName], version, protected == 1,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
 			make(map[*project]state),
-			nil, nil,
+			make(map[string]*credential),
+			nil, nil, "",
 		}
+		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
+		if err == nil {
+			p.commit = strings.TrimSpace(string(out))
+		}
+		fmt.Printf("%+v\n", p)
 		projects[p.id] = p
 		go projectRoutine(p)
 	}
@@ -1102,6 +1304,18 @@ func main() {
 			}
 		}
 	}
+	rows, err = db.Query(`SELECT project, name, credential FROM environments`)
+	for rows.Next() {
+		var pid int
+		var name string
+		var crid int
+		rows.Scan(&pid, &name, &crid)
+		p := projects[pid]
+		cr := credentials[crid]
+		if p != nil && cr != nil {
+			p.credentials[name] = cr
+		}
+	}
 
 	go func() {
 		for {
@@ -1128,6 +1342,28 @@ func main() {
 			time.Sleep(60 * time.Second)
 		}
 	}()
+
+	handlers["/events"] = handleEvents
+	handlers["/user/current"] = handleUserCurrent
+	handlers["/user/login"] = handleUserLogin
+	handlers["/user/logout"] = handleUserLogout
+	handlers["/project/list"] = handleProjectList
+	handlers["/project/status"] = handleProjectStatus
+	handlers["/project/update"] = handleProjectUpdate
+	handlers["/project/triggers"] = handleProjectTriggers
+	handlers["/project/environment"] = handleProjectEnvironment
+	handlers["/project/create"] = handleProjectCreate
+	handlers["/project/upload"] = handleProjectUpload
+	handlers["/project/build"] = handleProjectBuild
+	handlers["/project/delete"] = handleProjectDelete
+	handlers["/task/logs"] = handleTaskLogs
+	handlers["/registry/list"] = handleRegistryList
+	handlers["/registry/create"] = handleRegistryCreate
+	handlers["/registry/update"] = handleRegistryUpdate
+	handlers["/credential/list"] = handleCredentialList
+	handlers["/credential/create"] = handleCredentialCreate
+	handlers["/credential/update"] = handleCredentialUpdate
+	handlers["/credential/delete"] = handleCredentialDelete
 
 	http.HandleFunc("/", handleRoot)
 	endpoint := fmt.Sprintf(":%d", port)

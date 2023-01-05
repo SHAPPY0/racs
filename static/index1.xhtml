@@ -860,7 +860,7 @@
 				while (project.tasks.children.length > 5) {
 					project.tasks.removeChild(project.tasks.firstChild);
 				}
-				//project.tasks.scrollIntoView(false);
+				project.tasks.scrollIntoView(false);
 			}
 			task.icon.classList = "fas";
 			//task.box.classList = "task notification mb-0 ml-2 p-2 is-light";
@@ -884,8 +884,6 @@
 				task.icon.addClass("fa-exclamation-triangle");
 				break;
 			}
-			var container = project.tasks.parentNode;
-			container.scrollTop = container.scrollHeight;
 		}
 
 		var labels = {};
