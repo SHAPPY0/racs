@@ -929,8 +929,10 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	if params["payload"] != "" {
 		var j map[string]interface{}
 		json.Unmarshal([]byte(params["payload"]), &j)
+		logger.Infof("Build payload %v", j)
 		ref = fmt.Sprint(j["ref"])
 	}
+	logger.Infof("Building from %s - %s", stage, ref)
 	if ref == `refs/heads/${p.branch}` {
 		switch stage {
 		case "clean":
@@ -1104,6 +1106,8 @@ func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, 
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
 	if strings.HasPrefix(contentType, "application/json") {
@@ -1136,10 +1140,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		nonce, in := b[:nonceSize], b[nonceSize:]
 		de, _ := gcm.Open(nil, nonce, in, nil)
 		json.Unmarshal(de, &u)
-	}
-	path := r.URL.Path
-	if params["password"] == "" {
-		logger.Infof("%s %s %s %s", r.Method, r.RemoteAddr, path, params)
 	}
 	if handleAction(path, w, r, &u, params) {
 		return
