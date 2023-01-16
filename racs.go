@@ -1098,7 +1098,6 @@ func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, 
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
-	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, r.URL.Path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
 	if strings.HasPrefix(contentType, "application/json") {
@@ -1133,6 +1132,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(de, &u)
 	}
 	path := r.URL.Path
+	if params["password"] == "" {
+		logger.Infof("%s %s %s %s", r.Method, r.RemoteAddr, path, params)
+	}
 	if handleAction(path, w, r, &u, params) {
 		return
 	}
