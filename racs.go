@@ -227,6 +227,7 @@ func projectEnvironment(p *project, request taskRequest) string {
 }
 
 func projectRoutine(p *project) {
+	exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 	for {
 		logger.Infof("Project %d waiting for tasks", p.id)
 		request := <-p.queue
@@ -747,6 +748,7 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 			"protected":   p.protected,
 			"tagrepo":     p.tagrepo,
 		})
+		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
 		if len(redirect) > 0 {
 			w.Header().Add("Location", redirect)
