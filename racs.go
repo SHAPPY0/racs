@@ -925,23 +925,25 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 		w.Write([]byte("Unauthorized"))
 		return
 	}
-	switch stage {
-	case "clean":
-		p.buildFrom(CLEANING, defaultRequest)
-	case "clone":
-		p.buildFrom(CLONING, defaultRequest)
-	case "prepare":
-		p.buildFrom(PREPARING, defaultRequest)
-	case "pull":
-		p.buildFrom(PULLING, defaultRequest)
-	case "build":
-		p.buildFrom(BUILDING, defaultRequest)
-	case "package":
-		p.buildFrom(PACKAGING, defaultRequest)
-	case "push":
-		p.buildFrom(PUSHING, defaultRequest)
-	case "tag":
-		p.buildFrom(TAGGING, defaultRequest)
+	if params["ref"] == "" || params["ref"] == `refs/heads/${p.branch}` {
+		switch stage {
+		case "clean":
+			p.buildFrom(CLEANING, defaultRequest)
+		case "clone":
+			p.buildFrom(CLONING, defaultRequest)
+		case "prepare":
+			p.buildFrom(PREPARING, defaultRequest)
+		case "pull":
+			p.buildFrom(PULLING, defaultRequest)
+		case "build":
+			p.buildFrom(BUILDING, defaultRequest)
+		case "package":
+			p.buildFrom(PACKAGING, defaultRequest)
+		case "push":
+			p.buildFrom(PUSHING, defaultRequest)
+		case "tag":
+			p.buildFrom(TAGGING, defaultRequest)
+		}
 	}
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
