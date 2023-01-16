@@ -925,7 +925,13 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 		w.Write([]byte("Unauthorized"))
 		return
 	}
-	if params["ref"] == "" || params["ref"] == `refs/heads/${p.branch}` {
+	ref := `refs/heads/${p.branch}`
+	if params["payload"] != "" {
+		var j map[string]interface{}
+		json.Unmarshal([]byte(params["payload"]), &j)
+		ref = fmt.Sprint(j["ref"])
+	}
+	if ref == `refs/heads/${p.branch}` {
 		switch stage {
 		case "clean":
 			p.buildFrom(CLEANING, defaultRequest)
