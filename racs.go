@@ -930,10 +930,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	if params["payload"] != "" {
 		var j map[string]interface{}
 		json.Unmarshal([]byte(params["payload"]), &j)
-		logger.Infof("Build payload %v", j)
 		requestedRef = fmt.Sprint(j["ref"])
 	}
-	logger.Infof("Build from %s requested by ref %s, expected %s", stage, requestedRef, expectedRef)
 	if requestedRef == expectedRef {
 		switch stage {
 		case "clean":
@@ -953,6 +951,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 		case "tag":
 			p.buildFrom(TAGGING, defaultRequest)
 		}
+	} else {
+		logger.Infof("Build requested by %s expected %s, skipping", requestedRef, expectedRef)
 	}
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
