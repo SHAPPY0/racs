@@ -285,11 +285,18 @@ func projectRoutine(p *project) {
 				args = []string{"push", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%s", url, tag)}
 			} else {
 				command = "echo"
-				args = []string{"no destination"}
+				args = []string{"skipping push"}
 			}
 		case TAGGING:
-			command = "git"
-			args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "push", "origin", fmt.Sprintf("r%d", p.version)}
+			if p.tagrepo {
+				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
+				tag = tag[strings.LastIndex(tag, ":")+1:]
+				command = "git"
+				args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "push", "origin", tag}
+			} else {
+				command = "echo"
+				args = []string{"skipping tag"}
+			}
 		case DELETING:
 			command = "rm"
 			args = []string{"-vrf", fmt.Sprintf("%s/%d", projectAbs, p.id)}
@@ -397,11 +404,7 @@ func projectRoutine(p *project) {
 			if err != nil {
 				logger.Error(err)
 			}
-			if p.tag != "" {
-				p.buildFrom(PUSHING, request)
-			} else if p.tagrepo {
-				p.buildFrom(TAGGING, request)
-			}
+			p.buildFrom(PUSHING, request)
 		case PUSH_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			if len(p.triggers) > 0 {
@@ -410,9 +413,7 @@ func projectRoutine(p *project) {
 					p2.buildFrom(state2, request2)
 				}
 			}
-			if p.tagrepo {
-				p.buildFrom(TAGGING, request)
-			}
+			p.buildFrom(TAGGING, request)
 		case TAG_SUCCESS:
 		case DELETE_SUCCESS:
 			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
