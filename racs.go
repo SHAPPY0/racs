@@ -107,7 +107,6 @@ type taskRequest struct {
 	branch string
 	commit string
 	tag    string
-	chain  int
 }
 
 type credential struct {
@@ -138,7 +137,6 @@ type project struct {
 	prepareDep  *project
 	packageDep  *project
 	commit      string
-	chain       int
 }
 
 type broker struct {
@@ -159,7 +157,7 @@ var clients = &broker{
 	make(chan chan []byte),
 	make(map[chan []byte]bool),
 }
-var defaultRequest = taskRequest{NONE, "", "", "", "", -1}
+var defaultRequest = taskRequest{NONE, "", "", "", ""}
 
 func event(event map[string]interface{}) {
 	bytes, _ := json.Marshal(event)
@@ -202,12 +200,7 @@ func registryLogin(name string) string {
 }
 
 func (p *project) buildFrom(state state, trigger taskRequest) {
-	chain := trigger.chain
-	if chain == -1 {
-		p.chain++
-		chain = p.chain
-	}
-	p.queue <- taskRequest{state, trigger.url, trigger.branch, trigger.commit, trigger.tag, chain}
+	p.queue <- taskRequest{state, trigger.url, trigger.branch, trigger.commit, trigger.tag}
 }
 
 func projectEnvironment(p *project, request taskRequest) string {
@@ -228,12 +221,9 @@ func projectEnvironment(p *project, request taskRequest) string {
 
 func projectRoutine(p *project) {
 	exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
+	logger.Infof("Project %d waiting for tasks", p.id)
+	request := <-p.queue
 	for {
-		logger.Infof("Project %d waiting for tasks", p.id)
-		request := <-p.queue
-		if request.chain != p.chain {
-			continue
-		}
 		state := request.state
 		logger.Infof("Project %d received task %s", p.id, state.String())
 		command := ""
@@ -361,13 +351,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			p.buildFrom(CLEANING, request)
+			request = taskRequest{CLEANING, request.url, request.branch, request.commit, request.tag}
 		case CLEAN_SUCCESS:
-			p.buildFrom(CLONING, request)
+			request = taskRequest{CLONING, request.url, request.branch, request.commit, request.tag}
 		case CLONE_SUCCESS:
-			p.buildFrom(PREPARING, request)
+			request = taskRequest{PREPARING, request.url, request.branch, request.commit, request.tag}
 		case PREPARE_SUCCESS:
-			p.buildFrom(PULLING, request)
+			request = taskRequest{PULLING, request.url, request.branch, request.commit, request.tag}
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -382,16 +372,16 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				p.buildFrom(PREPARING, request)
+				request = taskRequest{PREPARING, request.url, request.branch, request.commit, request.tag}
 			} else {
-				p.buildFrom(BUILDING, request)
+				request = taskRequest{BUILDING, request.url, request.branch, request.commit, request.tag}
 			}
 		case BUILD_SUCCESS:
 			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 			if err == nil {
 				p.commit = strings.TrimSpace(string(out))
 			}
-			p.buildFrom(PACKAGING, request)
+			request = taskRequest{PACKAGING, request.url, request.branch, request.commit, request.tag}
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -404,22 +394,24 @@ func projectRoutine(p *project) {
 			if err != nil {
 				logger.Error(err)
 			}
-			p.buildFrom(PUSHING, request)
+			request = taskRequest{PUSHING, request.url, request.branch, request.commit, request.tag}
 		case PUSH_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			if len(p.triggers) > 0 {
-				request2 := taskRequest{state, p.url, p.branch, p.commit, tag, -1}
+				request2 := taskRequest{state, p.url, p.branch, p.commit, tag}
 				for p2, state2 := range p.triggers {
 					p2.buildFrom(state2, request2)
 				}
 			}
-			p.buildFrom(TAGGING, request)
+			request = taskRequest{TAGGING, request.url, request.branch, request.commit, request.tag}
 		case TAG_SUCCESS:
 		case DELETE_SUCCESS:
 			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
 			db.Exec(`DELETE FROM tasks WHERE project = ?`, p.id)
 			delete(projects, p.id)
 			return
+		default:
+			request = <-p.queue
 		}
 	}
 }
@@ -439,7 +431,7 @@ func projectCreate(name, url, branch, destination, tag string, labels string) *p
 		make(chan taskRequest, 10),
 		make(map[*project]state),
 		make(map[string]*credential),
-		nil, nil, "", 0,
+		nil, nil, "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -1318,7 +1310,7 @@ func main() {
 			make(chan taskRequest, 10),
 			make(map[*project]state),
 			make(map[string]*credential),
-			nil, nil, "", 0,
+			nil, nil, "",
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {
