@@ -404,7 +404,6 @@ func projectRoutine(p *project) {
 				}
 			}
 			request = taskRequest{TAGGING, request.url, request.branch, request.commit, request.tag}
-		case TAG_SUCCESS:
 		case DELETE_SUCCESS:
 			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
 			db.Exec(`DELETE FROM tasks WHERE project = ?`, p.id)
