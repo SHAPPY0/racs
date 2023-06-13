@@ -566,7 +566,7 @@
 		<div class="navbar-menu" id="navbar-menu">
 			<div class="navbar-end">
 				<div class="navbar-item has-dropdown is-hoverable">
-					<a class="navbar-link">Filter</a>
+					<a class="navbar-link" id="filter-label">Filter</a>
 					<div class="navbar-dropdown">
 						<div class="navbar-item">
 							<form id="labels_dropdown"/>
@@ -930,6 +930,8 @@
 						)
 					)
 				);
+				var filter = JSON.parse(sessionStorage.getItem("filter") || "{}");
+				if (filter[label]) info.checked = input.checked = true;
 			}
 			var tag = create("span.tag", {style: `background:${info.colour}; color:white; margin:0 0.25em;`}, label);
 			return tag;
@@ -947,6 +949,19 @@
 			var cards = container.children;
 			for (var i = 0; i &lt; cards.length; ++i) {
 				cards[i].style.setProperty("display", visible(cards[i]) ? null : "none", "important");
+			}
+			var filter = {};
+			var filterCount = 0;
+			for (var label in labels) if (labels[label].checked) {
+				filter[label] = true;
+				filterCount++;
+			}
+			sessionStorage.setItem("filter", JSON.stringify(filter));
+			var filterLabel = document.getElementById("filter-label");
+			if (filterCount > 0) {
+				filterLabel.textContent = `Filter (${filterCount})`;
+			} else {
+				filterLabel.textContent = "Filter";
 			}
 		}
 
@@ -1025,6 +1040,7 @@
 				}
 				}
 			}
+			filterProjects();
 		}
 
 		function updateRegistry(registry) {
