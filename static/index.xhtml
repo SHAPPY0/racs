@@ -339,6 +339,18 @@
 						</div>
 						<div class="field is-horizontal">
 							<div class="field-label is-normal">
+								<label class="label">PrepackageSpec</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="prepackageSpec" id="update_prepackageSpec"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
 								<label class="label">PackageSpec</label>
 							</div>
 							<div class="field-body">
@@ -369,18 +381,6 @@
 								<div class="field">
 									<div class="control is-expanded">
 										<input class="checkbox" type="checkbox" name="tagRepo" id="update_tagRepo"/>
-									</div>
-								</div>
-							</div>
-						</div>
-						<div class="field is-horizontal">
-							<div class="field-label is-normal">
-								<label class="label">Use Cache</label>
-							</div>
-							<div class="field-body">
-								<div class="field">
-									<div class="control is-expanded">
-										<input class="checkbox" type="checkbox" name="useCache" id="update_useCache"/>
 									</div>
 								</div>
 							</div>
@@ -640,6 +640,7 @@
 			PREPARING: "prepare",
 			PULLING: "pull",
 			BUILDING: "build",
+			PREPACKAGING: "prepackage",
 			PACKAGING: "package",
 			PUSHING: "push",
 			TAGGING: "tag",
@@ -655,10 +656,10 @@
 			document.getElementById("update_destination").value = this.destination;
 			document.getElementById("update_tag").value = this.tag;
 			document.getElementById("update_buildSpec").value = this.buildSpec;
+			document.getElementById("update_prepackageSpec").value = this.prepackageSpec;
 			document.getElementById("update_packageSpec").value = this.packageSpec;
 			document.getElementById("update_protected").checked = this.protected;
 			document.getElementById("update_tagRepo").checked = this.tagRepo;
-			document.getElementById("update_useCache").checked = this.useCache;
 			document.getElementById("upload_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			document.getElementById("environment_id").value = this.id;
@@ -724,6 +725,7 @@
 				create("option", {value: "prepare"}, "Prepare"),
 				create("option", {value: "pull"}, "Pull"),
 				create("option", {value: "build"}, "Build"),
+				create("option", {value: "prepackage"}, "Prepackage"),
 				create("option", {value: "package"}, "Package"),
 				create("option", {value: "push"}, "Push"),
 				create("option", {value: "tag"}, "Tag")
@@ -992,6 +994,7 @@
 					create("option", {value: "prepare"}, "Prepare"),
 					create("option", {value: "pull"}, "Pull"),
 					create("option", {value: "build"}, "Build"),
+					create("option", {value: "prepackage"}, "Prepackage"),
 					create("option", {value: "package"}, "Package"),
 					create("option", {value: "push"}, "Push"),
 					create("option", {value: "tag"}, "Tag")

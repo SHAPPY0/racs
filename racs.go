@@ -36,41 +36,44 @@ var logger = log.New(os.Stderr)
 type state int
 
 const (
-	DELETING        state = -3
-	DELETE_ERROR    state = -2
-	DELETE_SUCCESS  state = -1
-	NONE            state = 0
-	CREATING        state = 1
-	CREATE_ERROR    state = 2
-	CREATE_SUCCESS  state = 3
-	CLEANING        state = 4
-	CLEAN_ERROR     state = 5
-	CLEAN_SUCCESS   state = 6
-	CLONING         state = 7
-	CLONE_ERROR     state = 8
-	CLONE_SUCCESS   state = 9
-	PREPARING       state = 10
-	PREPARE_ERROR   state = 11
-	PREPARE_SUCCESS state = 12
-	PULLING         state = 13
-	PULL_ERROR      state = 14
-	PULL_SUCCESS    state = 15
-	BUILDING        state = 16
-	BUILD_ERROR     state = 17
-	BUILD_SUCCESS   state = 18
-	PACKAGING       state = 19
-	PACKAGE_ERROR   state = 20
-	PACKAGE_SUCCESS state = 21
-	PUSHING         state = 22
-	PUSH_ERROR      state = 23
-	PUSH_SUCCESS    state = 24
-	TAGGING         state = 25
-	TAG_ERROR       state = 26
-	TAG_SUCCESS     state = 27
+	DELETING             state = -3
+	DELETE_ERROR         state = -2
+	DELETE_SUCCESS       state = -1
+	NONE                 state = 0
+	CREATING             state = 1
+	CREATE_ERROR         state = 2
+	CREATE_SUCCESS       state = 3
+	CLEANING             state = 4
+	CLEAN_ERROR          state = 5
+	CLEAN_SUCCESS        state = 6
+	CLONING              state = 7
+	CLONE_ERROR          state = 8
+	CLONE_SUCCESS        state = 9
+	PREPARING            state = 10
+	PREPARE_ERROR        state = 11
+	PREPARE_SUCCESS      state = 12
+	PULLING              state = 13
+	PULL_ERROR           state = 14
+	PULL_SUCCESS         state = 15
+	BUILDING             state = 16
+	BUILD_ERROR          state = 17
+	BUILD_SUCCESS        state = 18
+	PREPACKAGING         state = 19
+	PREPACKAGING_ERROR   state = 20
+	PREPACKAGING_SUCCESS state = 21
+	PACKAGING            state = 22
+	PACKAGE_ERROR        state = 23
+	PACKAGE_SUCCESS      state = 24
+	PUSHING              state = 25
+	PUSH_ERROR           state = 26
+	PUSH_SUCCESS         state = 27
+	TAGGING              state = 28
+	TAG_ERROR            state = 29
+	TAG_SUCCESS          state = 30
 )
 
 func (s state) String() string {
-	return [31]string{
+	return [34]string{
 		"DELETING", "DELETE_ERROR", "DELETE_SUCCESS",
 		"NONE",
 		"CREATING", "CREATE_ERROR", "CREATE_SUCCESS",
@@ -79,6 +82,7 @@ func (s state) String() string {
 		"PREPARING", "PREPARE_ERROR", "PREPARE_SUCCESS",
 		"PULLING", "PULL_ERROR", "PULL_SUCCESS",
 		"BUILDING", "BUILD_ERROR", "BUILD_SUCCESS",
+		"PREPACKING", "PREPACKAGE_ERROR", "PREPACKAGE_SUCCESS",
 		"PACKAGING", "PACKAGE_ERROR", "PACKAGE_SUCCESS",
 		"PUSHING", "PUSH_ERROR", "PUSH_SUCCESS",
 		"TAGGING", "TAG_ERROR", "TAG_SUCCESS",
@@ -116,28 +120,28 @@ type credential struct {
 }
 
 type project struct {
-	id          int
-	name        string
-	labels      string
-	url         string
-	branch      string
-	destination string
-	tag         string
-	buildSpec   string
-	packageSpec string
-	buildHash   []byte
-	state       state
-	version     int
-	protected   bool
-	tagRepo     bool
-	useCache    bool
-	tasks       []*task
-	queue       chan taskRequest
-	triggers    map[*project]state
-	credentials map[string]*credential
-	prepareDep  *project
-	packageDep  *project
-	commit      string
+	id             int
+	name           string
+	labels         string
+	url            string
+	branch         string
+	destination    string
+	tag            string
+	buildSpec      string
+	prepackageSpec string
+	packageSpec    string
+	buildHash      []byte
+	state          state
+	version        int
+	protected      bool
+	tagRepo        bool
+	tasks          []*task
+	queue          chan taskRequest
+	triggers       map[*project]state
+	credentials    map[string]*credential
+	prepareDep     *project
+	packageDep     *project
+	commit         string
 }
 
 type broker struct {
@@ -247,7 +251,7 @@ func projectRoutine(p *project) {
 				"-t", fmt.Sprintf("builder-%d", p.id),
 			}
 			if p.prepareDep != nil {
-				args = append(args, "--from", fmt.Sprintf("project-%d", p.prepareDep.id))
+				args = append(args, "--from", fmt.Sprintf("package-%d", p.prepareDep.id))
 			}
 			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PULLING:
@@ -260,40 +264,44 @@ func projectRoutine(p *project) {
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--read-only", fmt.Sprintf("builder-%d", p.id),
 			}
-		case PACKAGING:
-			command = "podman"
-			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
-			if p.useCache {
+		case PREPACKAGING:
+			if p.prepackageSpec != "" {
+				command = "podman"
+				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.prepackageSpec)
 				args = []string{"build",
 					"--pull=newer",
 					"--layers",
 					"--cache-ttl=24h",
 					"-f", spec,
-					"-t", fmt.Sprintf("project-%d", p.id),
-				}
-				if p.packageDep != nil {
-					args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
+					"-t", fmt.Sprintf("prepackage-%d", p.id),
 				}
 				args = append(args, fmt.Sprintf("%s/%d/workspace", projectAbs, p.id))
 			} else {
-				args = []string{"build",
-					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
-					"--pull=newer",
-					"--squash",
-					"-f", spec,
-					"-t", fmt.Sprintf("project-%d", p.id),
-				}
-				if p.packageDep != nil {
-					args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
-				}
-				args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+				command = "echo"
+				args = []string{"skipping prepackage"}
 			}
+		case PACKAGING:
+			command = "podman"
+			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
+			args = []string{"build",
+				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+				"--pull=newer",
+				"--squash",
+				"-f", spec,
+				"-t", fmt.Sprintf("package-%d", p.id),
+			}
+			if p.packageDep != nil {
+				args = append(args, "--from", fmt.Sprintf("package-%d", p.packageDep.id))
+			} else if p.prepackageSpec != "" {
+				args = append(args, "--from", fmt.Sprintf("prepackage-%d", p.id))
+			}
+			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PUSHING:
 			url := registryLogin(p.destination)
 			if len(url) > 0 {
 				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 				command = "podman"
-				args = []string{"push", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%s", url, tag)}
+				args = []string{"push", fmt.Sprintf("package-%d", p.id), fmt.Sprintf("%s/%s", url, tag)}
 			} else {
 				command = "echo"
 				args = []string{"skipping push"}
@@ -402,6 +410,8 @@ func projectRoutine(p *project) {
 			if err == nil {
 				p.commit = strings.TrimSpace(string(out))
 			}
+			request = taskRequest{PREPACKAGING, request.url, request.branch, request.commit, request.tag}
+		case PREPACKAGING_SUCCESS:
 			request = taskRequest{PACKAGING, request.url, request.branch, request.commit, request.tag}
 		case PACKAGE_SUCCESS:
 			p.version += 1
@@ -438,15 +448,15 @@ func projectRoutine(p *project) {
 
 func projectCreate(name, url, branch, destination, tag string, labels string) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, packageSpec, state, version)
-		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, prepackageSpec, packageSpec, state, version)
+		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, labels, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
-		CREATE_SUCCESS, 0, false, false, false,
+		id, name, labels, url, branch, destination, tag, "BuildSpec", "", "PackageSpec", []byte{},
+		CREATE_SUCCESS, 0, false, false,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make(map[*project]state),
@@ -456,21 +466,21 @@ func projectCreate(name, url, branch, destination, tag string, labels string) *p
 	projects[p.id] = p
 	go projectRoutine(p)
 	event(map[string]interface{}{
-		"event":       "project/create",
-		"id":          p.id,
-		"name":        p.name,
-		"labels":      p.labels,
-		"url":         p.url,
-		"branch":      p.branch,
-		"destination": p.destination,
-		"tag":         p.tag,
-		"buildSpec":   p.buildSpec,
-		"packageSpec": p.packageSpec,
-		"state":       p.state.String(),
-		"version":     p.version,
-		"protected":   p.protected,
-		"tagRepo":     p.tagRepo,
-		"useCache":    p.useCache,
+		"event":          "project/create",
+		"id":             p.id,
+		"name":           p.name,
+		"labels":         p.labels,
+		"url":            p.url,
+		"branch":         p.branch,
+		"destination":    p.destination,
+		"tag":            p.tag,
+		"buildSpec":      p.buildSpec,
+		"prepackageSpec": p.prepackageSpec,
+		"packageSpec":    p.packageSpec,
+		"state":          p.state.String(),
+		"version":        p.version,
+		"protected":      p.protected,
+		"tagRepo":        p.tagRepo,
 	})
 	return p
 }
@@ -510,23 +520,23 @@ func projectList() []map[string]interface{} {
 			})
 		}
 		result = append(result, map[string]interface{}{
-			"id":          id,
-			"name":        p.name,
-			"labels":      p.labels,
-			"url":         p.url,
-			"branch":      p.branch,
-			"destination": p.destination,
-			"tag":         p.tag,
-			"buildSpec":   p.buildSpec,
-			"packageSpec": p.packageSpec,
-			"state":       p.state.String(),
-			"tasks":       tasks,
-			"version":     p.version,
-			"protected":   p.protected,
-			"tagRepo":     p.tagRepo,
-			"useCache":    p.useCache,
-			"triggers":    triggers,
-			"environment": environment,
+			"id":             id,
+			"name":           p.name,
+			"labels":         p.labels,
+			"url":            p.url,
+			"branch":         p.branch,
+			"destination":    p.destination,
+			"tag":            p.tag,
+			"buildSpec":      p.buildSpec,
+			"prepackageSpec": p.prepackageSpec,
+			"packageSpec":    p.packageSpec,
+			"state":          p.state.String(),
+			"tasks":          tasks,
+			"version":        p.version,
+			"protected":      p.protected,
+			"tagRepo":        p.tagRepo,
+			"triggers":       triggers,
+			"environment":    environment,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -713,15 +723,16 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params
 	} else {
 		w.Header().Add("Content-Type", "application/json")
 		j, _ := json.Marshal(map[string]interface{}{
-			"id":          id,
-			"name":        p.name,
-			"url":         p.url,
-			"branch":      p.branch,
-			"destination": p.destination,
-			"buildSpec":   p.buildSpec,
-			"packageSpec": p.packageSpec,
-			"tag":         p.tag,
-			"labels":      p.labels,
+			"id":             id,
+			"name":           p.name,
+			"url":            p.url,
+			"branch":         p.branch,
+			"destination":    p.destination,
+			"buildSpec":      p.buildSpec,
+			"prepackageSpec": p.prepackageSpec,
+			"packageSpec":    p.packageSpec,
+			"tag":            p.tag,
+			"labels":         p.labels,
 		})
 		w.Write(j)
 	}
@@ -743,27 +754,27 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.destination = params["destination"]
 		p.tag = params["tag"]
 		p.buildSpec = filepath.Clean(params["buildSpec"])
+		p.prepackageSpec = filepath.Clean(params["prepackageSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
 		p.protected = params["protected"] != ""
 		p.tagRepo = params["tagRepo"] != ""
-		p.useCache = params["useCache"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
-			buildSpec = ?, packageSpec = ?, protected = ?, tagRepo = ?, useCache = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.protected, p.tagRepo, p.useCache, p.id)
+			buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, tagRepo = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.tagRepo, p.id)
 		event(map[string]interface{}{
-			"event":       "project/update",
-			"id":          p.id,
-			"name":        p.name,
-			"labels":      p.labels,
-			"url":         p.url,
-			"branch":      p.branch,
-			"destination": p.destination,
-			"buildSpec":   p.buildSpec,
-			"packageSpec": p.packageSpec,
-			"tag":         p.tag,
-			"protected":   p.protected,
-			"tagRepo":     p.tagRepo,
-			"useCache":    p.useCache,
+			"event":          "project/update",
+			"id":             p.id,
+			"name":           p.name,
+			"labels":         p.labels,
+			"url":            p.url,
+			"branch":         p.branch,
+			"destination":    p.destination,
+			"buildSpec":      p.buildSpec,
+			"prepackageSpec": p.prepackageSpec,
+			"packageSpec":    p.packageSpec,
+			"tag":            p.tag,
+			"protected":      p.protected,
+			"tagRepo":        p.tagRepo,
 		})
 		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
@@ -882,6 +893,8 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 			s = PULLING
 		case "build":
 			s = BUILDING
+		case "prepackage":
+			s = PREPACKAGING
 		case "package":
 			s = PACKAGING
 			t.packageDep = p
@@ -961,6 +974,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 			p.buildFrom(PULLING, defaultRequest)
 		case "build":
 			p.buildFrom(BUILDING, defaultRequest)
+		case "prepackage":
+			p.buildFrom(PREPACKAGING, defaultRequest)
 		case "package":
 			p.buildFrom(PACKAGING, defaultRequest)
 		case "push":
@@ -1242,13 +1257,13 @@ func main() {
 		)`,
 		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
 		`ALTER TABLE projects ADD COLUMN labels STRING`,
-		`UPDATE projects SET labels='' WHERE labels IS NULL`,
+		`UPDATE projects SET labels = '' WHERE labels IS NULL`,
 		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
 		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
 		`ALTER TABLE projects ADD COLUMN tagRepo INTEGER`,
 		`UPDATE projects SET tagRepo = 0 WHERE tagRepo IS NULL`,
-		`ALTER TABLE projects ADD COLUMN useCache INTEGER`,
-		`UPDATE projects SET useCache = 0 WHERE useCache IS NULL`,
+		`ALTER TABLE projects ADD COLUMN prepackageSpec STRING`,
+		`UPDATE projects SET prepackageSpec = '' WHERE prepackageSpec IS NULL`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -1309,7 +1324,7 @@ func main() {
 		cr := &credential{id, description, value}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version, protected, tagRepo, useCache FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tagRepo FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1318,6 +1333,7 @@ func main() {
 		var destination string
 		var tag string
 		var buildSpec string
+		var prepackageSpec string
 		var packageSpec string
 		var buildHash []byte
 		var labels string
@@ -1325,14 +1341,13 @@ func main() {
 		var version int
 		var protected int
 		var tagRepo int
-		var useCache int
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo, &useCache)
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo)
 		if err != nil {
 			logger.Error(err)
 		}
 		p := &project{
-			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
-			states[stateName], version, protected == 1, tagRepo == 1, useCache == 1,
+			id, name, labels, source, branch, destination, tag, buildSpec, prepackageSpec, packageSpec, buildHash,
+			states[stateName], version, protected == 1, tagRepo == 1,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
 			make(map[*project]state),
