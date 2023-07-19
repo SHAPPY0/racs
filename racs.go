@@ -140,6 +140,7 @@ type project struct {
 	triggers       map[*project]state
 	credentials    map[string]*credential
 	prepareDep     *project
+	prepackageDep  *project
 	packageDep     *project
 	commit         string
 }
@@ -274,6 +275,9 @@ func projectRoutine(p *project) {
 					"--cache-ttl=24h",
 					"-f", spec,
 					"-t", fmt.Sprintf("prepackage-%d", p.id),
+				}
+				if p.prepackageDep != nil {
+					args = append(args, "--from", fmt.Sprintf("package-%d", p.prepackageDep.id))
 				}
 				args = append(args, fmt.Sprintf("%s/%d/workspace", projectAbs, p.id))
 			} else {
@@ -461,7 +465,7 @@ func projectCreate(name, url, branch, destination, tag string, labels string) *p
 		make(chan taskRequest, 10),
 		make(map[*project]state),
 		make(map[string]*credential),
-		nil, nil, "",
+		nil, nil, nil, "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -868,6 +872,8 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 		switch state {
 		case PREPARING:
 			target.prepareDep = nil
+		case PREPACKAGING:
+			target.prepackageDep = nil
 		case PACKAGING:
 			target.packageDep = nil
 		}
@@ -895,6 +901,7 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 			s = BUILDING
 		case "prepackage":
 			s = PREPACKAGING
+			t.prepackageDep = p
 		case "package":
 			s = PACKAGING
 			t.packageDep = p
@@ -1352,7 +1359,7 @@ func main() {
 			make(chan taskRequest, 10),
 			make(map[*project]state),
 			make(map[string]*credential),
-			nil, nil, "",
+			nil, nil, nil, "",
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {
@@ -1391,6 +1398,8 @@ func main() {
 			switch states[stateName] {
 			case PREPARING:
 				t.prepareDep = p
+			case PREPACKAGING:
+				t.prepackageDep = p
 			case PACKAGING:
 				t.packageDep = p
 			}
