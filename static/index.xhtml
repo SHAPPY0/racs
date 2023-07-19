@@ -368,7 +368,19 @@
 							<div class="field-body">
 								<div class="field">
 									<div class="control is-expanded">
-										<input class="checkbox" type="checkbox" name="tagrepo" id="update_tagrepo"/>
+										<input class="checkbox" type="checkbox" name="tagRepo" id="update_tagRepo"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Use Cache</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="checkbox" type="checkbox" name="useCache" id="update_useCache"/>
 									</div>
 								</div>
 							</div>
@@ -645,7 +657,8 @@
 			document.getElementById("update_buildSpec").value = this.buildSpec;
 			document.getElementById("update_packageSpec").value = this.packageSpec;
 			document.getElementById("update_protected").checked = this.protected;
-			document.getElementById("update_tagrepo").checked = this.tagrepo;
+			document.getElementById("update_tagRepo").checked = this.tagRepo;
+			document.getElementById("update_useCache").checked = this.useCache;
 			document.getElementById("upload_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			document.getElementById("environment_id").value = this.id;

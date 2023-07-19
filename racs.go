@@ -129,7 +129,8 @@ type project struct {
 	state       state
 	version     int
 	protected   bool
-	tagrepo     bool
+	tagRepo     bool
+	useCache    bool
 	tasks       []*task
 	queue       chan taskRequest
 	triggers    map[*project]state
@@ -241,7 +242,7 @@ func projectRoutine(p *project) {
 			args = []string{"build",
 				"--pull=newer",
 				"--layers",
-				"--cache-ttl=24h",
+				"--cache-ttl=4h",
 				"-f", spec,
 				"-t", fmt.Sprintf("builder-%d", p.id),
 			}
@@ -262,18 +263,31 @@ func projectRoutine(p *project) {
 		case PACKAGING:
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
-			args = []string{"build",
-				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
-				"--pull=newer",
-				"--layers",
-				"--cache-ttl=24h",
-				"-f", spec,
-				"-t", fmt.Sprintf("project-%d", p.id),
+			if p.useCache {
+				args = []string{"build",
+					"--pull=newer",
+					"--layers",
+					"--cache-ttl=24h",
+					"-f", spec,
+					"-t", fmt.Sprintf("project-%d", p.id),
+				}
+				if p.packageDep != nil {
+					args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/workspace", projectAbs, p.id))
+			} else {
+				args = []string{"build",
+					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"--pull=newer",
+					"--squash",
+					"-f", spec,
+					"-t", fmt.Sprintf("project-%d", p.id),
+				}
+				if p.packageDep != nil {
+					args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 			}
-			if p.packageDep != nil {
-				args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
-			}
-			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PUSHING:
 			url := registryLogin(p.destination)
 			if len(url) > 0 {
@@ -285,7 +299,7 @@ func projectRoutine(p *project) {
 				args = []string{"skipping push"}
 			}
 		case TAGGING:
-			if p.tagrepo {
+			if p.tagRepo {
 				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 				tag = tag[strings.LastIndex(tag, ":")+1:]
 				command = "git"
@@ -432,7 +446,7 @@ func projectCreate(name, url, branch, destination, tag string, labels string) *p
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
 		id, name, labels, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
-		CREATE_SUCCESS, 0, false, false,
+		CREATE_SUCCESS, 0, false, false, false,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make(map[*project]state),
@@ -455,7 +469,8 @@ func projectCreate(name, url, branch, destination, tag string, labels string) *p
 		"state":       p.state.String(),
 		"version":     p.version,
 		"protected":   p.protected,
-		"tagrepo":     p.tagrepo,
+		"tagRepo":     p.tagRepo,
+		"useCache":    p.useCache,
 	})
 	return p
 }
@@ -508,7 +523,8 @@ func projectList() []map[string]interface{} {
 			"tasks":       tasks,
 			"version":     p.version,
 			"protected":   p.protected,
-			"tagrepo":     p.tagrepo,
+			"tagRepo":     p.tagRepo,
+			"useCache":    p.useCache,
 			"triggers":    triggers,
 			"environment": environment,
 		})
@@ -729,10 +745,11 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.buildSpec = filepath.Clean(params["buildSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
 		p.protected = params["protected"] != ""
-		p.tagrepo = params["tagrepo"] != ""
+		p.tagRepo = params["tagRepo"] != ""
+		p.useCache = params["useCache"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
-			buildSpec = ?, packageSpec = ?, protected = ?, tagrepo = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.protected, p.tagrepo, p.id)
+			buildSpec = ?, packageSpec = ?, protected = ?, tagRepo = ?, useCache = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.protected, p.tagRepo, p.useCache, p.id)
 		event(map[string]interface{}{
 			"event":       "project/update",
 			"id":          p.id,
@@ -745,7 +762,8 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 			"packageSpec": p.packageSpec,
 			"tag":         p.tag,
 			"protected":   p.protected,
-			"tagrepo":     p.tagrepo,
+			"tagRepo":     p.tagRepo,
+			"useCache":    p.useCache,
 		})
 		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
@@ -1227,8 +1245,10 @@ func main() {
 		`UPDATE projects SET labels='' WHERE labels IS NULL`,
 		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
 		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
-		`ALTER TABLE projects ADD COLUMN tagrepo INTEGER`,
-		`UPDATE projects SET tagrepo = 0 WHERE tagrepo IS NULL`,
+		`ALTER TABLE projects ADD COLUMN tagRepo INTEGER`,
+		`UPDATE projects SET tagRepo = 0 WHERE tagRepo IS NULL`,
+		`ALTER TABLE projects ADD COLUMN useCache INTEGER`,
+		`UPDATE projects SET useCache = 0 WHERE useCache IS NULL`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -1289,7 +1309,7 @@ func main() {
 		cr := &credential{id, description, value}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version, protected, tagrepo FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version, protected, tagRepo, useCache FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1304,14 +1324,15 @@ func main() {
 		var stateName string
 		var version int
 		var protected int
-		var tagrepo int
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagrepo)
+		var tagRepo int
+		var useCache int
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo, &useCache)
 		if err != nil {
 			logger.Error(err)
 		}
 		p := &project{
 			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
-			states[stateName], version, protected == 1, tagrepo == 1,
+			states[stateName], version, protected == 1, tagRepo == 1, useCache == 1,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
 			make(map[*project]state),
