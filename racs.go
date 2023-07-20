@@ -1026,7 +1026,7 @@ func handleTaskList(w http.ResponseWriter, r *http.Request, u *user, params map[
 		var state string
 		var time string
 		rows.Scan(&pid, &id, &kind, &state, &time)
-		result = prepend(result, map[string]interface{}{
+		result = append(result, map[string]interface{}{
 			"project": pid,
 			"id":      id,
 			"type":    kind,
