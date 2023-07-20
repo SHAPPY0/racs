@@ -26,7 +26,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/creack/pty"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/msteinert/pam"
 	"github.com/withmandala/go-log"
@@ -351,14 +350,13 @@ func projectRoutine(p *project) {
 			os.Mkdir(taskRoot, 0777)
 			logger.Infof("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
-			ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{50, 80, 480, 640})
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
 			out.WriteString("\u001B[1m")
 			out.WriteString(cmd.String())
 			out.WriteString("\u001B[0m\n")
-			//cmd.Stdout = out
-			//cmd.Stderr = out
-			//err = cmd.Run()
+			cmd.Stdout = out
+			cmd.Stderr = out
+			err = cmd.Run()
 			if err != nil {
 				t.state = "ERROR"
 				p.state += 1
@@ -366,7 +364,6 @@ func projectRoutine(p *project) {
 				t.state = "SUCCESS"
 				p.state += 2
 			}
-			io.Copy(out, ptmx)
 			out.Close()
 			logger.Infof("Task %d completed", t.id)
 			db.Exec(`UPDATE projects SET state = ? WHERE id = ?`, p.state.String(), p.id)
