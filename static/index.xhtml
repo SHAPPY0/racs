@@ -339,6 +339,18 @@
 						</div>
 						<div class="field is-horizontal">
 							<div class="field-label is-normal">
+								<label class="label">PrepackageSpec</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" name="prepackageSpec" id="update_prepackageSpec"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
 								<label class="label">PackageSpec</label>
 							</div>
 							<div class="field-body">
@@ -368,7 +380,7 @@
 							<div class="field-body">
 								<div class="field">
 									<div class="control is-expanded">
-										<input class="checkbox" type="checkbox" name="tagrepo" id="update_tagrepo"/>
+										<input class="checkbox" type="checkbox" name="tagRepo" id="update_tagRepo"/>
 									</div>
 								</div>
 							</div>
@@ -548,7 +560,7 @@
 			</footer>
 		</form>
 	</div>
-	<nav class="navbar is-radiusless" role="navigation" aria-label="main navigation">
+	<nav class="navbar is-radiusless" role="navigation" aria-label="main navigation" style="position:sticky;top:0">
 		<div class="navbar-brand">
 			<a class="navbar-item" href="/">
 				<img src="/favicon-96x96.png"/>
@@ -557,6 +569,7 @@
 			<a class="navbar-item is-tab is-active" href="/">Projects</a>
 			<a class="navbar-item is-tab" href="/credentials.xhtml">Credentials</a>
 			<a class="navbar-item is-tab" href="/registries.xhtml">Registries</a>
+			<a class="navbar-item is-tab" href="/tasks.xhtml">Tasks</a>
 			<a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" id="navbar-burger">
 				<span aria-hidden="true"></span>
 				<span aria-hidden="true"></span>
@@ -566,7 +579,7 @@
 		<div class="navbar-menu" id="navbar-menu">
 			<div class="navbar-end">
 				<div class="navbar-item has-dropdown is-hoverable">
-					<a class="navbar-link">Filter</a>
+					<a class="navbar-link" id="filter-label">Filter</a>
 					<div class="navbar-dropdown">
 						<div class="navbar-item">
 							<form id="labels_dropdown"/>
@@ -628,6 +641,7 @@
 			PREPARING: "prepare",
 			PULLING: "pull",
 			BUILDING: "build",
+			PREPACKAGING: "prepackage",
 			PACKAGING: "package",
 			PUSHING: "push",
 			TAGGING: "tag",
@@ -643,9 +657,10 @@
 			document.getElementById("update_destination").value = this.destination;
 			document.getElementById("update_tag").value = this.tag;
 			document.getElementById("update_buildSpec").value = this.buildSpec;
+			document.getElementById("update_prepackageSpec").value = this.prepackageSpec;
 			document.getElementById("update_packageSpec").value = this.packageSpec;
 			document.getElementById("update_protected").checked = this.protected;
-			document.getElementById("update_tagrepo").checked = this.tagrepo;
+			document.getElementById("update_tagRepo").checked = this.tagRepo;
 			document.getElementById("upload_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			document.getElementById("environment_id").value = this.id;
@@ -711,6 +726,7 @@
 				create("option", {value: "prepare"}, "Prepare"),
 				create("option", {value: "pull"}, "Pull"),
 				create("option", {value: "build"}, "Build"),
+				create("option", {value: "prepackage"}, "Prepackage"),
 				create("option", {value: "package"}, "Package"),
 				create("option", {value: "push"}, "Push"),
 				create("option", {value: "tag"}, "Tag")
@@ -903,6 +919,7 @@
 			container.scrollTop = container.scrollHeight;
 		}
 
+		var filter = JSON.parse(sessionStorage.getItem("filter") || "{}");
 		var labels = {};
 
 		function labelTag(label) {
@@ -920,7 +937,7 @@
 					checked: input.checked
 				};
 				input.onchange = function() {
-					info.checked = input.checked;
+					filter[label] = info.checked = input.checked;
 					filterProjects();
 				}
 				document.getElementById("labels_dropdown").appendChild(
@@ -930,6 +947,7 @@
 						)
 					)
 				);
+				info.checked = input.checked = !!filter[label];
 			}
 			var tag = create("span.tag", {style: `background:${info.colour}; color:white; margin:0 0.25em;`}, label);
 			return tag;
@@ -947,6 +965,17 @@
 			var cards = container.children;
 			for (var i = 0; i &lt; cards.length; ++i) {
 				cards[i].style.setProperty("display", visible(cards[i]) ? null : "none", "important");
+			}
+			var filterCount = 0;
+			for (var label in labels) if (labels[label].checked) {
+				filterCount++;
+			}
+			sessionStorage.setItem("filter", JSON.stringify(filter));
+			var filterLabel = document.getElementById("filter-label");
+			if (filterCount > 0) {
+				filterLabel.textContent = `Filter (${filterCount})`;
+			} else {
+				filterLabel.textContent = "Filter";
 			}
 		}
 
@@ -966,6 +995,7 @@
 					create("option", {value: "prepare"}, "Prepare"),
 					create("option", {value: "pull"}, "Pull"),
 					create("option", {value: "build"}, "Build"),
+					create("option", {value: "prepackage"}, "Prepackage"),
 					create("option", {value: "package"}, "Package"),
 					create("option", {value: "push"}, "Push"),
 					create("option", {value: "tag"}, "Tag")
@@ -1025,6 +1055,7 @@
 				}
 				}
 			}
+			filterProjects();
 		}
 
 		function updateRegistry(registry) {

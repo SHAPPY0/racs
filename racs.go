@@ -36,41 +36,44 @@ var logger = log.New(os.Stderr)
 type state int
 
 const (
-	DELETING        state = -3
-	DELETE_ERROR    state = -2
-	DELETE_SUCCESS  state = -1
-	NONE            state = 0
-	CREATING        state = 1
-	CREATE_ERROR    state = 2
-	CREATE_SUCCESS  state = 3
-	CLEANING        state = 4
-	CLEAN_ERROR     state = 5
-	CLEAN_SUCCESS   state = 6
-	CLONING         state = 7
-	CLONE_ERROR     state = 8
-	CLONE_SUCCESS   state = 9
-	PREPARING       state = 10
-	PREPARE_ERROR   state = 11
-	PREPARE_SUCCESS state = 12
-	PULLING         state = 13
-	PULL_ERROR      state = 14
-	PULL_SUCCESS    state = 15
-	BUILDING        state = 16
-	BUILD_ERROR     state = 17
-	BUILD_SUCCESS   state = 18
-	PACKAGING       state = 19
-	PACKAGE_ERROR   state = 20
-	PACKAGE_SUCCESS state = 21
-	PUSHING         state = 22
-	PUSH_ERROR      state = 23
-	PUSH_SUCCESS    state = 24
-	TAGGING         state = 25
-	TAG_ERROR       state = 26
-	TAG_SUCCESS     state = 27
+	DELETING             state = -3
+	DELETE_ERROR         state = -2
+	DELETE_SUCCESS       state = -1
+	NONE                 state = 0
+	CREATING             state = 1
+	CREATE_ERROR         state = 2
+	CREATE_SUCCESS       state = 3
+	CLEANING             state = 4
+	CLEAN_ERROR          state = 5
+	CLEAN_SUCCESS        state = 6
+	CLONING              state = 7
+	CLONE_ERROR          state = 8
+	CLONE_SUCCESS        state = 9
+	PREPARING            state = 10
+	PREPARE_ERROR        state = 11
+	PREPARE_SUCCESS      state = 12
+	PULLING              state = 13
+	PULL_ERROR           state = 14
+	PULL_SUCCESS         state = 15
+	BUILDING             state = 16
+	BUILD_ERROR          state = 17
+	BUILD_SUCCESS        state = 18
+	PREPACKAGING         state = 19
+	PREPACKAGING_ERROR   state = 20
+	PREPACKAGING_SUCCESS state = 21
+	PACKAGING            state = 22
+	PACKAGE_ERROR        state = 23
+	PACKAGE_SUCCESS      state = 24
+	PUSHING              state = 25
+	PUSH_ERROR           state = 26
+	PUSH_SUCCESS         state = 27
+	TAGGING              state = 28
+	TAG_ERROR            state = 29
+	TAG_SUCCESS          state = 30
 )
 
 func (s state) String() string {
-	return [31]string{
+	return [34]string{
 		"DELETING", "DELETE_ERROR", "DELETE_SUCCESS",
 		"NONE",
 		"CREATING", "CREATE_ERROR", "CREATE_SUCCESS",
@@ -79,6 +82,7 @@ func (s state) String() string {
 		"PREPARING", "PREPARE_ERROR", "PREPARE_SUCCESS",
 		"PULLING", "PULL_ERROR", "PULL_SUCCESS",
 		"BUILDING", "BUILD_ERROR", "BUILD_SUCCESS",
+		"PREPACKAGING", "PREPACKAGE_ERROR", "PREPACKAGE_SUCCESS",
 		"PACKAGING", "PACKAGE_ERROR", "PACKAGE_SUCCESS",
 		"PUSHING", "PUSH_ERROR", "PUSH_SUCCESS",
 		"TAGGING", "TAG_ERROR", "TAG_SUCCESS",
@@ -107,7 +111,6 @@ type taskRequest struct {
 	branch string
 	commit string
 	tag    string
-	chain  int
 }
 
 type credential struct {
@@ -117,28 +120,29 @@ type credential struct {
 }
 
 type project struct {
-	id          int
-	name        string
-	labels      string
-	url         string
-	branch      string
-	destination string
-	tag         string
-	buildSpec   string
-	packageSpec string
-	buildHash   []byte
-	state       state
-	version     int
-	protected   bool
-	tagrepo     bool
-	tasks       []*task
-	queue       chan taskRequest
-	triggers    map[*project]state
-	credentials map[string]*credential
-	prepareDep  *project
-	packageDep  *project
-	commit      string
-	chain       int
+	id             int
+	name           string
+	labels         string
+	url            string
+	branch         string
+	destination    string
+	tag            string
+	buildSpec      string
+	prepackageSpec string
+	packageSpec    string
+	buildHash      []byte
+	state          state
+	version        int
+	protected      bool
+	tagRepo        bool
+	tasks          []*task
+	queue          chan taskRequest
+	triggers       map[*project]state
+	credentials    map[string]*credential
+	prepareDep     *project
+	prepackageDep  *project
+	packageDep     *project
+	commit         string
 }
 
 type broker struct {
@@ -159,7 +163,7 @@ var clients = &broker{
 	make(chan chan []byte),
 	make(map[chan []byte]bool),
 }
-var defaultRequest = taskRequest{NONE, "", "", "", "", -1}
+var defaultRequest = taskRequest{NONE, "", "", "", ""}
 
 func event(event map[string]interface{}) {
 	bytes, _ := json.Marshal(event)
@@ -202,12 +206,7 @@ func registryLogin(name string) string {
 }
 
 func (p *project) buildFrom(state state, trigger taskRequest) {
-	chain := trigger.chain
-	if chain == -1 {
-		p.chain++
-		chain = p.chain
-	}
-	p.queue <- taskRequest{state, trigger.url, trigger.branch, trigger.commit, trigger.tag, chain}
+	p.queue <- taskRequest{state, trigger.url, trigger.branch, trigger.commit, trigger.tag}
 }
 
 func projectEnvironment(p *project, request taskRequest) string {
@@ -227,12 +226,10 @@ func projectEnvironment(p *project, request taskRequest) string {
 }
 
 func projectRoutine(p *project) {
+	exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
+	logger.Infof("Project %d waiting for tasks", p.id)
+	request := <-p.queue
 	for {
-		logger.Infof("Project %d waiting for tasks", p.id)
-		request := <-p.queue
-		if request.chain != p.chain {
-			continue
-		}
 		state := request.state
 		logger.Infof("Project %d received task %s", p.id, state.String())
 		command := ""
@@ -247,9 +244,14 @@ func projectRoutine(p *project) {
 		case PREPARING:
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
-			args = []string{"build", "--pull=newer", "--squash-all", "-f", spec, "-t", fmt.Sprintf("builder-%d", p.id)}
+			args = []string{"build",
+				"--pull=newer",
+				"--squash",
+				"-f", spec,
+				"-t", fmt.Sprintf("builder-%d", p.id),
+			}
 			if p.prepareDep != nil {
-				args = append(args, "--from", fmt.Sprintf("project-%d", p.prepareDep.id))
+				args = append(args, "--from", fmt.Sprintf("package-%d", p.prepareDep.id))
 			}
 			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PULLING:
@@ -262,18 +264,39 @@ func projectRoutine(p *project) {
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
 				"--read-only", fmt.Sprintf("builder-%d", p.id),
 			}
+		case PREPACKAGING:
+			if p.prepackageSpec != "" {
+				command = "podman"
+				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.prepackageSpec)
+				args = []string{"build",
+					"--pull=newer",
+					"--layers",
+					"--cache-ttl=24h",
+					"-f", spec,
+					"-t", fmt.Sprintf("prepackage-%d", p.id),
+				}
+				if p.prepackageDep != nil {
+					args = append(args, "--from", fmt.Sprintf("package-%d", p.prepackageDep.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/workspace", projectAbs, p.id))
+			} else {
+				command = "echo"
+				args = []string{"skipping prepackage"}
+			}
 		case PACKAGING:
 			command = "podman"
 			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
 			args = []string{"build",
-				"--pull=newer",
 				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+				"--pull=newer",
 				"--squash",
 				"-f", spec,
-				"-t", fmt.Sprintf("project-%d", p.id),
+				"-t", fmt.Sprintf("package-%d", p.id),
 			}
 			if p.packageDep != nil {
-				args = append(args, "--from", fmt.Sprintf("project-%d", p.packageDep.id))
+				args = append(args, "--from", fmt.Sprintf("package-%d", p.packageDep.id))
+			} else if p.prepackageSpec != "" {
+				args = append(args, "--from", fmt.Sprintf("prepackage-%d", p.id))
 			}
 			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PUSHING:
@@ -281,14 +304,21 @@ func projectRoutine(p *project) {
 			if len(url) > 0 {
 				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 				command = "podman"
-				args = []string{"push", fmt.Sprintf("project-%d", p.id), fmt.Sprintf("%s/%s", url, tag)}
+				args = []string{"push", fmt.Sprintf("package-%d", p.id), fmt.Sprintf("%s/%s", url, tag)}
 			} else {
 				command = "echo"
-				args = []string{"no destination"}
+				args = []string{"skipping push"}
 			}
 		case TAGGING:
-			command = "git"
-			args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "push", "origin", fmt.Sprintf("r%d", p.version)}
+			if p.tagRepo {
+				tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
+				tag = tag[strings.LastIndex(tag, ":")+1:]
+				command = "git"
+				args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "push", "origin", tag}
+			} else {
+				command = "echo"
+				args = []string{"skipping tag"}
+			}
 		case DELETING:
 			command = "rm"
 			args = []string{"-vrf", fmt.Sprintf("%s/%d", projectAbs, p.id)}
@@ -353,13 +383,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			p.buildFrom(CLEANING, request)
+			request = taskRequest{CLEANING, request.url, request.branch, request.commit, request.tag}
 		case CLEAN_SUCCESS:
-			p.buildFrom(CLONING, request)
+			request = taskRequest{CLONING, request.url, request.branch, request.commit, request.tag}
 		case CLONE_SUCCESS:
-			p.buildFrom(PREPARING, request)
+			request = taskRequest{PREPARING, request.url, request.branch, request.commit, request.tag}
 		case PREPARE_SUCCESS:
-			p.buildFrom(PULLING, request)
+			request = taskRequest{PULLING, request.url, request.branch, request.commit, request.tag}
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -374,16 +404,18 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				p.buildFrom(PREPARING, request)
+				request = taskRequest{PREPARING, request.url, request.branch, request.commit, request.tag}
 			} else {
-				p.buildFrom(BUILDING, request)
+				request = taskRequest{BUILDING, request.url, request.branch, request.commit, request.tag}
 			}
 		case BUILD_SUCCESS:
 			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 			if err == nil {
 				p.commit = strings.TrimSpace(string(out))
 			}
-			p.buildFrom(PACKAGING, request)
+			request = taskRequest{PREPACKAGING, request.url, request.branch, request.commit, request.tag}
+		case PREPACKAGING_SUCCESS:
+			request = taskRequest{PACKAGING, request.url, request.branch, request.commit, request.tag}
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -396,66 +428,62 @@ func projectRoutine(p *project) {
 			if err != nil {
 				logger.Error(err)
 			}
-			if p.tag != "" {
-				p.buildFrom(PUSHING, request)
-			} else if p.tagrepo {
-				p.buildFrom(TAGGING, request)
-			}
+			request = taskRequest{PUSHING, request.url, request.branch, request.commit, request.tag}
 		case PUSH_SUCCESS:
 			tag := strings.Replace(p.tag, "$VERSION", strconv.Itoa(p.version), -1)
 			if len(p.triggers) > 0 {
-				request2 := taskRequest{state, p.url, p.branch, p.commit, tag, -1}
+				request2 := taskRequest{state, p.url, p.branch, p.commit, tag}
 				for p2, state2 := range p.triggers {
 					p2.buildFrom(state2, request2)
 				}
 			}
-			if p.tagrepo {
-				p.buildFrom(TAGGING, request)
-			}
-		case TAG_SUCCESS:
+			request = taskRequest{TAGGING, request.url, request.branch, request.commit, request.tag}
 		case DELETE_SUCCESS:
 			db.Exec(`DELETE FROM projects WHERE id = ?`, p.id)
 			db.Exec(`DELETE FROM tasks WHERE project = ?`, p.id)
 			delete(projects, p.id)
 			return
+		default:
+			request = <-p.queue
 		}
 	}
 }
 
 func projectCreate(name, url, branch, destination, tag string, labels string) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, packageSpec, state, version)
-		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, prepackageSpec, packageSpec, state, version)
+		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
-		id, name, labels, url, branch, destination, tag, "BuildSpec", "PackageSpec", []byte{},
+		id, name, labels, url, branch, destination, tag, "BuildSpec", "", "PackageSpec", []byte{},
 		CREATE_SUCCESS, 0, false, false,
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make(map[*project]state),
 		make(map[string]*credential),
-		nil, nil, "", 0,
+		nil, nil, nil, "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
 	event(map[string]interface{}{
-		"event":       "project/create",
-		"id":          p.id,
-		"name":        p.name,
-		"labels":      p.labels,
-		"url":         p.url,
-		"branch":      p.branch,
-		"destination": p.destination,
-		"tag":         p.tag,
-		"buildSpec":   p.buildSpec,
-		"packageSpec": p.packageSpec,
-		"state":       p.state.String(),
-		"version":     p.version,
-		"protected":   p.protected,
-		"tagrepo":     p.tagrepo,
+		"event":          "project/create",
+		"id":             p.id,
+		"name":           p.name,
+		"labels":         p.labels,
+		"url":            p.url,
+		"branch":         p.branch,
+		"destination":    p.destination,
+		"tag":            p.tag,
+		"buildSpec":      p.buildSpec,
+		"prepackageSpec": p.prepackageSpec,
+		"packageSpec":    p.packageSpec,
+		"state":          p.state.String(),
+		"version":        p.version,
+		"protected":      p.protected,
+		"tagRepo":        p.tagRepo,
 	})
 	return p
 }
@@ -495,22 +523,23 @@ func projectList() []map[string]interface{} {
 			})
 		}
 		result = append(result, map[string]interface{}{
-			"id":          id,
-			"name":        p.name,
-			"labels":      p.labels,
-			"url":         p.url,
-			"branch":      p.branch,
-			"destination": p.destination,
-			"tag":         p.tag,
-			"buildSpec":   p.buildSpec,
-			"packageSpec": p.packageSpec,
-			"state":       p.state.String(),
-			"tasks":       tasks,
-			"version":     p.version,
-			"protected":   p.protected,
-			"tagrepo":     p.tagrepo,
-			"triggers":    triggers,
-			"environment": environment,
+			"id":             id,
+			"name":           p.name,
+			"labels":         p.labels,
+			"url":            p.url,
+			"branch":         p.branch,
+			"destination":    p.destination,
+			"tag":            p.tag,
+			"buildSpec":      p.buildSpec,
+			"prepackageSpec": p.prepackageSpec,
+			"packageSpec":    p.packageSpec,
+			"state":          p.state.String(),
+			"tasks":          tasks,
+			"version":        p.version,
+			"protected":      p.protected,
+			"tagRepo":        p.tagRepo,
+			"triggers":       triggers,
+			"environment":    environment,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -697,15 +726,16 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params
 	} else {
 		w.Header().Add("Content-Type", "application/json")
 		j, _ := json.Marshal(map[string]interface{}{
-			"id":          id,
-			"name":        p.name,
-			"url":         p.url,
-			"branch":      p.branch,
-			"destination": p.destination,
-			"buildSpec":   p.buildSpec,
-			"packageSpec": p.packageSpec,
-			"tag":         p.tag,
-			"labels":      p.labels,
+			"id":             id,
+			"name":           p.name,
+			"url":            p.url,
+			"branch":         p.branch,
+			"destination":    p.destination,
+			"buildSpec":      p.buildSpec,
+			"prepackageSpec": p.prepackageSpec,
+			"packageSpec":    p.packageSpec,
+			"tag":            p.tag,
+			"labels":         p.labels,
 		})
 		w.Write(j)
 	}
@@ -727,26 +757,29 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.destination = params["destination"]
 		p.tag = params["tag"]
 		p.buildSpec = filepath.Clean(params["buildSpec"])
+		p.prepackageSpec = filepath.Clean(params["prepackageSpec"])
 		p.packageSpec = filepath.Clean(params["packageSpec"])
 		p.protected = params["protected"] != ""
-		p.tagrepo = params["tagrepo"] != ""
+		p.tagRepo = params["tagRepo"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
-			buildSpec = ?, packageSpec = ?, protected = ?, tagrepo = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.packageSpec, p.protected, p.tagrepo, p.id)
+			buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, tagRepo = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.destination, p.tag, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.tagRepo, p.id)
 		event(map[string]interface{}{
-			"event":       "project/update",
-			"id":          p.id,
-			"name":        p.name,
-			"labels":      p.labels,
-			"url":         p.url,
-			"branch":      p.branch,
-			"destination": p.destination,
-			"buildSpec":   p.buildSpec,
-			"packageSpec": p.packageSpec,
-			"tag":         p.tag,
-			"protected":   p.protected,
-			"tagrepo":     p.tagrepo,
+			"event":          "project/update",
+			"id":             p.id,
+			"name":           p.name,
+			"labels":         p.labels,
+			"url":            p.url,
+			"branch":         p.branch,
+			"destination":    p.destination,
+			"buildSpec":      p.buildSpec,
+			"prepackageSpec": p.prepackageSpec,
+			"packageSpec":    p.packageSpec,
+			"tag":            p.tag,
+			"protected":      p.protected,
+			"tagRepo":        p.tagRepo,
 		})
+		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
 		if len(redirect) > 0 {
 			w.Header().Add("Location", redirect)
@@ -838,6 +871,8 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 		switch state {
 		case PREPARING:
 			target.prepareDep = nil
+		case PREPACKAGING:
+			target.prepackageDep = nil
 		case PACKAGING:
 			target.packageDep = nil
 		}
@@ -863,6 +898,9 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 			s = PULLING
 		case "build":
 			s = BUILDING
+		case "prepackage":
+			s = PREPACKAGING
+			t.prepackageDep = p
 		case "package":
 			s = PACKAGING
 			t.packageDep = p
@@ -923,23 +961,36 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 		w.Write([]byte("Unauthorized"))
 		return
 	}
-	switch stage {
-	case "clean":
-		p.buildFrom(CLEANING, defaultRequest)
-	case "clone":
-		p.buildFrom(CLONING, defaultRequest)
-	case "prepare":
-		p.buildFrom(PREPARING, defaultRequest)
-	case "pull":
-		p.buildFrom(PULLING, defaultRequest)
-	case "build":
-		p.buildFrom(BUILDING, defaultRequest)
-	case "package":
-		p.buildFrom(PACKAGING, defaultRequest)
-	case "push":
-		p.buildFrom(PUSHING, defaultRequest)
-	case "tag":
-		p.buildFrom(TAGGING, defaultRequest)
+	expectedRef := fmt.Sprintf("refs/heads/%s", p.branch)
+	requestedRef := expectedRef
+	if params["payload"] != "" {
+		var j map[string]interface{}
+		json.Unmarshal([]byte(params["payload"]), &j)
+		requestedRef = fmt.Sprint(j["ref"])
+	}
+	if requestedRef == expectedRef {
+		switch stage {
+		case "clean":
+			p.buildFrom(CLEANING, defaultRequest)
+		case "clone":
+			p.buildFrom(CLONING, defaultRequest)
+		case "prepare":
+			p.buildFrom(PREPARING, defaultRequest)
+		case "pull":
+			p.buildFrom(PULLING, defaultRequest)
+		case "build":
+			p.buildFrom(BUILDING, defaultRequest)
+		case "prepackage":
+			p.buildFrom(PREPACKAGING, defaultRequest)
+		case "package":
+			p.buildFrom(PACKAGING, defaultRequest)
+		case "push":
+			p.buildFrom(PUSHING, defaultRequest)
+		case "tag":
+			p.buildFrom(TAGGING, defaultRequest)
+		}
+	} else {
+		logger.Infof("Build requested by %s expected %s, skipping", requestedRef, expectedRef)
 	}
 	w.WriteHeader(200)
 	w.Write([]byte("OK"))
@@ -962,6 +1013,30 @@ func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params
 		w.WriteHeader(200)
 		w.Write([]byte("OK"))
 	}
+}
+
+func handleTaskList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	from, _ := strconv.ParseInt(params["from"], 10, 64)
+	rows, _ := db.Query(`SELECT project, id, type, state, time FROM tasks ORDER BY id DESC LIMIT 100 OFFSET ?`, from)
+	result := make([]interface{}, 0)
+	for rows.Next() {
+		var pid int
+		var id int
+		var kind string
+		var state string
+		var time string
+		rows.Scan(&pid, &id, &kind, &state, &time)
+		result = append(result, map[string]interface{}{
+			"project": pid,
+			"id":      id,
+			"type":    kind,
+			"state":   state,
+			"time":    time,
+		})
+	}
+	w.Header().Add("Content-Type", "application/json")
+	j, _ := json.Marshal(result)
+	w.Write(j)
 }
 
 func handleTaskLogs(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
@@ -1094,7 +1169,8 @@ func handleAction(path string, w http.ResponseWriter, r *http.Request, u *user, 
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
-	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, r.URL.Path)
+	path := r.URL.Path
+	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
 	if strings.HasPrefix(contentType, "application/json") {
@@ -1128,7 +1204,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		de, _ := gcm.Open(nil, nonce, in, nil)
 		json.Unmarshal(de, &u)
 	}
-	path := r.URL.Path
 	if handleAction(path, w, r, &u, params) {
 		return
 	}
@@ -1212,11 +1287,13 @@ func main() {
 		)`,
 		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
 		`ALTER TABLE projects ADD COLUMN labels STRING`,
-		`UPDATE projects SET labels='' WHERE labels IS NULL`,
+		`UPDATE projects SET labels = '' WHERE labels IS NULL`,
 		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
 		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
-		`ALTER TABLE projects ADD COLUMN tagrepo INTEGER`,
-		`UPDATE projects SET tagrepo = 0 WHERE tagrepo IS NULL`,
+		`ALTER TABLE projects ADD COLUMN tagRepo INTEGER`,
+		`UPDATE projects SET tagRepo = 0 WHERE tagRepo IS NULL`,
+		`ALTER TABLE projects ADD COLUMN prepackageSpec STRING`,
+		`UPDATE projects SET prepackageSpec = '' WHERE prepackageSpec IS NULL`,
 		`CREATE TABLE IF NOT EXISTS tasks(
 			id INTEGER PRIMARY KEY,
 			project INTEGER,
@@ -1277,7 +1354,7 @@ func main() {
 		cr := &credential{id, description, value}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash, state, version, protected, tagrepo FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, destination, tag, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tagRepo FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1286,25 +1363,26 @@ func main() {
 		var destination string
 		var tag string
 		var buildSpec string
+		var prepackageSpec string
 		var packageSpec string
 		var buildHash []byte
 		var labels string
 		var stateName string
 		var version int
 		var protected int
-		var tagrepo int
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagrepo)
+		var tagRepo int
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &destination, &tag, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo)
 		if err != nil {
 			logger.Error(err)
 		}
 		p := &project{
-			id, name, labels, source, branch, destination, tag, buildSpec, packageSpec, buildHash,
-			states[stateName], version, protected == 1, tagrepo == 1,
+			id, name, labels, source, branch, destination, tag, buildSpec, prepackageSpec, packageSpec, buildHash,
+			states[stateName], version, protected == 1, tagRepo == 1,
 			make([]*task, 0),
 			make(chan taskRequest, 10),
 			make(map[*project]state),
 			make(map[string]*credential),
-			nil, nil, "", 0,
+			nil, nil, nil, "",
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {
@@ -1343,6 +1421,8 @@ func main() {
 			switch states[stateName] {
 			case PREPARING:
 				t.prepareDep = p
+			case PREPACKAGING:
+				t.prepackageDep = p
 			case PACKAGING:
 				t.packageDep = p
 			}
@@ -1400,6 +1480,7 @@ func main() {
 	handlers["/project/upload"] = handleProjectUpload
 	handlers["/project/build"] = handleProjectBuild
 	handlers["/project/delete"] = handleProjectDelete
+	handlers["/task/list"] = handleTaskList
 	handlers["/task/logs"] = handleTaskLogs
 	handlers["/registry/list"] = handleRegistryList
 	handlers["/registry/create"] = handleRegistryCreate
