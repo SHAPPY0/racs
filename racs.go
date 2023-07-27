@@ -756,9 +756,21 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		p.branch = params["branch"]
 		p.destination = params["destination"]
 		p.tag = params["tag"]
-		p.buildSpec = filepath.Clean(params["buildSpec"])
-		p.prepackageSpec = filepath.Clean(params["prepackageSpec"])
-		p.packageSpec = filepath.Clean(params["packageSpec"])
+		if params["buildSpec"] != "" {
+			p.buildSpec = filepath.Clean(params["buildSpec"])
+		} else {
+			p.buildSpec = ""
+		}
+		if params["prepackageSpec"] != "" {
+			p.prepackageSpec = filepath.Clean(params["prepackageSpec"])
+		} else {
+			p.prepackageSpec = ""
+		}
+		if params["packageSpec"] != "" {
+			p.packageSpec = filepath.Clean(params["packageSpec"])
+		} else {
+			p.packageSpec = ""
+		}
 		p.protected = params["protected"] != ""
 		p.tagRepo = params["tagRepo"] != ""
 		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, destination = ?, tag = ?,
