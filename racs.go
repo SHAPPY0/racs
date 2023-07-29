@@ -1267,78 +1267,38 @@ func main() {
 	db, err = sql.Open("sqlite3", "file:main.db?cache=shared")
 	if err != nil {
 		logger.Fatal(err)
+		os.Exit(-1)
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 
-	stats := []string{
-		`CREATE TABLE IF NOT EXISTS users(
-			name STRING PRIMARY KEY,
-			passwd STRING,
-			salt STRING,
-			role STRING
-		)`,
-		`CREATE TABLE IF NOT EXISTS registries(
-			name STRING PRIMARY KEY,
-			url STRING,
-			user STRING,
-			password STRING
-		)`,
-		`ALTER TABLE registries ADD COLUMN timeout INTEGER`,
-		`CREATE TABLE IF NOT EXISTS projects(
-			id INTEGER PRIMARY KEY,
-			name STRING,
-			source STRING,
-			branch STRING,
-			destination STRING,
-			tag STRING,
-			buildSpec STRING,
-			packageSpec STRING,
-			state STRING,
-			version INTEGER
-		)`,
-		`ALTER TABLE projects ADD COLUMN buildHash BLOB`,
-		`ALTER TABLE projects ADD COLUMN labels STRING`,
-		`UPDATE projects SET labels = '' WHERE labels IS NULL`,
-		`ALTER TABLE projects ADD COLUMN protected INTEGER`,
-		`UPDATE projects SET protected = 0 WHERE protected IS NULL`,
-		`ALTER TABLE projects ADD COLUMN tagRepo INTEGER`,
-		`UPDATE projects SET tagRepo = 0 WHERE tagRepo IS NULL`,
-		`ALTER TABLE projects ADD COLUMN prepackageSpec STRING`,
-		`UPDATE projects SET prepackageSpec = '' WHERE prepackageSpec IS NULL`,
-		`CREATE TABLE IF NOT EXISTS tasks(
-			id INTEGER PRIMARY KEY,
-			project INTEGER,
-			type STRING,
-			state STRING,
-			time STRING
-		)`,
-		`CREATE TABLE IF NOT EXISTS members(
-			project INTEGER,
-			user STRING,
-			role STRING
-		)`,
-		`CREATE TABLE IF NOT EXISTS triggers(
-			project INTEGER,
-			target INTEGER,
-			state STRING
-		)`,
-		`CREATE TABLE IF NOT EXISTS credentials(
-			id INTEGER PRIMARY KEY,
-			description STRING,
-			value STRING
-		)`,
-		`CREATE TABLE IF NOT EXISTS environments(
-			project INTEGER,
-			name STRING,
-			credential INTEGER
-		)`,
-	}
-
-	for _, stat := range stats {
-		_, err := db.Exec(stat)
-		if err != nil {
-			logger.Error(err)
+	var version int
+	err = db.QueryRow(`SELECT value FROM config WHERE name = 'version'`).Scan(&version)
+	if err != nil {
+		bytes, _ := ioutil.ReadFile("schemas/current.sql")
+		stats := strings.Split(string(bytes), ";")
+		for _, stat := range stats {
+			_, err := db.Exec(stat)
+			if err != nil {
+				logger.Fatal(err)
+				os.Exit(-1)
+			}
+		}
+	} else {
+		for {
+			bytes, err := ioutil.ReadFile(fmt.Sprintf("schemas/upgrade-%d.sql", version))
+			if err != nil {
+				break
+			}
+			stats := strings.Split(string(bytes), ";")
+			for _, stat := range stats {
+				_, err := db.Exec(stat)
+				if err != nil {
+					logger.Fatal(err)
+					os.Exit(-1)
+				}
+			}
+			version += 1
 		}
 	}
 
