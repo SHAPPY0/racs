@@ -323,15 +323,26 @@
 		function updateTask(result) {
 			var project = projects[result.project];
 			var taskType = taskTypes[result.type];
-			if (!project.box || project.taskType >= taskType) {
-				project.tasks = create("div.tasks");
-				project.box = create("div.project",
-					create("div.name", project.name, " #", result.project.toString()),
-					project.tasks
-				);
-				container.prependChild(project.box);
+			if (taskType) {
+				if (!project.box || project.taskType >= taskType) {
+					project.tasks = create("div.tasks");
+					project.box = create("div.project",
+						create("div.name", project.name, " #", result.project.toString()),
+						project.tasks
+					);
+					container.prependChild(project.box);
+				}
+				project.taskType = taskType;
+			} else {
+				if (!project.box) {
+					project.tasks = create("div.tasks");
+					project.box = create("div.project",
+						create("div.name", project.name, " #", result.project.toString()),
+						project.tasks
+					);
+					container.prependChild(project.box);
+				}
 			}
-			project.taskType = taskType;
 			var task = tasks[result.id];
 			if (!task) {
 				task = tasks[result.id] = {};
