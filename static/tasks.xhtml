@@ -26,31 +26,47 @@
 	<meta name="msapplication-TileImage" content="/ms-icon-144x144.png"/>
 	<meta name="theme-color" content="#ffffff"/>
 	<style>
-		.task .id {
+		.project {
+			margin: 1em;
+			border: 2px solid #f0de99;
+			border-radius: 5px;
+		}
+
+		.project .name {
+			text-align: center;
+			background-color: #f0de99;
+			font-weight: bold;
+		}
+
+		.task {
 			display: inline-block;
+		}
+
+		.task .id {
+			display: block;
 			margin: 0 0.5em;
 		}
 
 		.task .name {
-			display: inline-block;
+			display: block;
 			margin: 0 0.5em;
 		}
 
 		.task .state {
-			display: inline-block;
+			display: block;
 			margin: 0 0.5em;
 		}
 
 		.task .type {
 			font-weight: bold;
-			width: 8em;
-			display: inline-block;
+			/*width: 8em;*/
+			display: block;
 			margin: 0 0.5em;
 		}
 
 		.task .time {
 			width: 10em;
-			display: inline-block;
+			display: block;
 			margin: 0 0.5em;
 		}
 	</style>
@@ -267,29 +283,74 @@
 		var projects = [];
 		var tasks = [];
 		
+		const taskTypes = {
+			DELETING: -3,
+			DELETE_ERROR: -2,
+			DELETE_SUCCESS: -1,
+			NONE: 0,
+			CREATING: 1,
+			CREATE_ERROR: 2,
+			CREATE_SUCCESS: 3,
+			CLEANING: 4,
+			CLEAN_ERROR: 5,
+			CLEAN_SUCCESS: 6,
+			CLONING: 7,
+			CLONE_ERROR: 8,
+			CLONE_SUCCESS: 9,
+			PREPARING: 10,
+			PREPARE_ERROR: 11,
+			PREPARE_SUCCESS: 12,
+			PULLING: 13,
+			PULL_ERROR: 14,
+			PULL_SUCCESS: 15,
+			BUILDING: 16,
+			BUILD_ERROR: 17,
+			BUILD_SUCCESS: 18,
+			PREPACKAGING: 19,
+			PREPACKAGING_ERROR: 20,
+			PREPACKAGING_SUCCESS: 21,
+			PACKAGING: 22,
+			PACKAGE_ERROR: 23,
+			PACKAGE_SUCCESS: 24,
+			PUSHING: 25,
+			PUSH_ERROR: 26,
+			PUSH_SUCCESS: 27,
+			TAGGING: 28,
+			TAG_ERROR: 29,
+			TAG_SUCCESS: 30
+		};
+
 		function updateTask(result) {
 			var project = projects[result.project];
+			var taskType = taskTypes[result.type];
+			if (!project.box || project.taskType >= taskType) {
+				project.tasks = create("div.tasks");
+				project.box = create("div.project",
+					create("div.name", project.name, " #", result.project.toString()),
+					project.tasks
+				);
+				container.prependChild(project.box);
+			}
+			project.taskType = taskType;
 			var task = tasks[result.id];
 			if (!task) {
 				task = tasks[result.id] = {};
 				task.icon = create("i");
 				task.state = create("span.icon", task.icon);
 				var time = result.time.split(" ");
-				task.box = create("div", {"on-click": showTaskLogs.bind(result)},
-					create("span.id", "#", result.id.toString()),
-					create("span.time", time[0], " ", time[1], " "),
-					create("span.state", task.state),
-					create("span.type", result.type),
-					create("span.name", project, " #", result.project.toString())
+				task.box = create("div.task", {"on-click": showTaskLogs.bind(result)},
+					create("div.type", task.state, " ", result.type),
+					//create("div.id", "#", result.id.toString()),
+					create("div.time", time[0], " ", time[1])
 				);
-				container.prependChild(task.box);
+				project.tasks.appendChild(task.box);
 				/*while (project.tasks.children.length > 5) {
 					project.tasks.removeChild(project.tasks.firstChild);
 				}*/
 				//project.tasks.scrollIntoView(false);
 			}
 			task.icon.classList = "fas";
-			task.box.classList = "task notification m-4 p-4 is-light";
+			task.box.classList = "task notification m-2 p-2 is-light";
 			switch (result.state) {
 			case "RUNNING":
 				//project.card.addClass("running");
@@ -312,7 +373,7 @@
 
 
 		function updateProject(result) {
-			projects[result.id] = result.name;
+			projects[result.id] = {name: result.name};
 		}
 
 		var events = null, fetchInterval = null;
