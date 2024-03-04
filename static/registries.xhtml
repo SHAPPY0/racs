@@ -76,10 +76,11 @@
 			</header>
 			<section class="modal-card-body">
 				<input type="hidden" name="redirect" value="/registries.xhtml"/>
+				<input type="hidden" name="id" id="update_id" value=""/>
 				<div class="field">
 					<label class="label">Name</label>
 					<div class="control">
-						<input class="input" name="name" id="update_name" disabled="disabled"/>
+						<input class="input" name="name" id="update_name"/>
 					</div>
 				</div>
 				<div class="field">
@@ -209,6 +210,7 @@
 		}
 
 		function showSettings() {
+			document.getElementById("update_id").value = this.id;
 			document.getElementById("update_name").value = this.name;
 			document.getElementById("update_url").value = this.url;
 			document.getElementById("update_user").value = this.user;
@@ -247,9 +249,9 @@
 		var registries = [];
 
 		function updateRegistry(result) {
-			var registry = registries[result.name];
+			var registry = registries[result.id];
 			if (!registry) {
-				registry = registries[result.name] = {};
+				registry = registries[result.id] = {};
 				registry.name = result.name;
 				var card = create("div.card.p-1.m-1.is-flex.is-flex-wrap-nowrap",
 					{style: "flex-grow: 1; flex-basis: 0;"},
