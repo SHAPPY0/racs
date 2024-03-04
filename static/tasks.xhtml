@@ -40,6 +40,7 @@
 
 		.task {
 			display: inline-block;
+			border: 2px solid;
 		}
 
 		.task .id {
@@ -327,7 +328,7 @@
 				if (!project.box || project.taskType >= taskType) {
 					project.tasks = create("div.tasks");
 					project.box = create("div.project",
-						create("div.name", project.name, " #", result.project.toString()),
+						create("div.name", "#", result.project.toString(), " ", project.name),
 						project.tasks
 					);
 					container.prependChild(project.box);
@@ -361,7 +362,7 @@
 				//project.tasks.scrollIntoView(false);
 			}
 			task.icon.classList = "fas";
-			task.box.classList = "task notification m-2 p-2 is-light";
+			task.box.classList = "task notification m-1 p-1 is-light";
 			switch (result.state) {
 			case "RUNNING":
 				//project.card.addClass("running");
