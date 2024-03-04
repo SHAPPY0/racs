@@ -325,7 +325,7 @@
 			var project = projects[result.project];
 			var taskType = taskTypes[result.type];
 			if (taskType) {
-				if (!project.box || project.taskType >= taskType) {
+				if (!project.box || project.taskType &gt; taskType) {
 					project.tasks = create("div.tasks");
 					project.box = create("div.project",
 						create("div.name", "#", result.project.toString(), " ", project.name),
