@@ -111,6 +111,7 @@ type taskTrigger struct {
 	branch  string
 	commit  string
 	tag     string
+	project int
 	version int
 }
 
@@ -230,6 +231,7 @@ func projectEnvironment(p *project, request taskRequest) string {
 		fmt.Fprintf(f, "RACS_TRIGGER_BRANCH=%s\n", trigger.branch)
 		fmt.Fprintf(f, "RACS_TRIGGER_COMMIT=%s\n", trigger.commit)
 		fmt.Fprintf(f, "RACS_TRIGGER_TAG=%s\n", trigger.tag)
+		fmt.Fprintf(f, "RACS_TRIGGER_PROJECT=%d\n", trigger.project)
 	}
 	for name, cr := range p.credentials {
 		fmt.Fprintf(f, "%s=%s\n", name, cr.value)
@@ -456,7 +458,7 @@ func projectRoutine(p *project) {
 					tag = strings.Replace(p.destinations[0].tag, "$VERSION", strconv.Itoa(p.version), -1)
 				}
 				if len(p.triggers) > 0 {
-					request2 := taskRequest{state, 0, &taskTrigger{p.url, p.branch, p.commit, tag, p.version}}
+					request2 := taskRequest{state, 0, &taskTrigger{p.url, p.branch, p.commit, tag, p.id, p.version}}
 					for p2, state2 := range p.triggers {
 						p2.buildFrom(state2, request2)
 					}
