@@ -449,10 +449,10 @@ func projectRoutine(p *project) {
 	}
 }
 
-func projectCreate(name, url, branch, destination, tag string, labels string) *project {
+func projectCreate(name, url, branch, destination, tag, labels string, protected, tagRepo bool) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, prepackageSpec, packageSpec, state, version)
-		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, destination, tag, labels).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, destination, tag, labels, buildSpec, prepackageSpec, packageSpec, state, version, protected, tagRepo)
+		VALUES(?, ?, ?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0, ?, ?) RETURNING id`, name, url, branch, destination, tag, labels, protected, tagRepo).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
@@ -813,7 +813,9 @@ func handleProjectCreate(w http.ResponseWriter, r *http.Request, u *user, params
 	destination := params["destination"]
 	tag := params["tag"]
 	labels := params["labels"]
-	p := projectCreate(name, url, branch, destination, tag, labels)
+	protected := params["protected"] != ""
+	tagRepo := params["tagRepo"] != ""
+	p := projectCreate(name, url, branch, destination, tag, labels, protected, tagRepo)
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
 		w.Header().Add("Location", redirect)
