@@ -207,10 +207,11 @@
 					<div class="tabs is-centered is-toggle">
 						<ul id="project_settings_tabs">
 							<li><a onclick="showSettingsTab(0)">Settings</a></li>
-							<li><a onclick="showSettingsTab(1)">Upload</a></li>
-							<li><a onclick="showSettingsTab(2)">Triggers</a></li>
-							<li><a onclick="showSettingsTab(3)">Environment</a></li>
-							<li><a onclick="showSettingsTab(4)">Delete</a></li>
+							<li><a onclick="showSettingsTab(1)">Destinations</a></li>
+							<li><a onclick="showSettingsTab(2)">Upload</a></li>
+							<li><a onclick="showSettingsTab(3)">Triggers</a></li>
+							<li><a onclick="showSettingsTab(4)">Environment</a></li>
+							<li><a onclick="showSettingsTab(5)">Delete</a></li>
 						</ul>
 					</div>
 				</p>
@@ -265,34 +266,6 @@
 								<div class="field">
 									<div class="control is-expanded">
 										<input class="input" name="branch" id="update_branch"/>
-									</div>
-								</div>
-							</div>
-						</div>
-						<div class="field is-horizontal">
-							<div class="field-label is-normal">
-								<label class="label">Destination</label>
-							</div>
-							<div class="field-body">
-								<div class="field">
-									<div class="control is-expanded">
-										<div class="select" autocomplete="off">
-											<select name="destination" id="update_destination">
-												<option value=""/>
-											</select>
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
-						<div class="field is-horizontal">
-							<div class="field-label is-normal">
-								<label class="label">Tag</label>
-							</div>
-							<div class="field-body">
-								<div class="field">
-									<div class="control is-expanded">
-										<input class="input" name="tag" id="update_tag"/>
 									</div>
 								</div>
 							</div>
@@ -362,6 +335,22 @@
 						<span style="flex:1 1;"/>
 						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
 						<button class="button is-primary" type="submit">Update</button>
+					</footer>
+				</form>
+				<form action="/project/destinations" method="POST">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="destination_id" value=""/>
+						<input type="hidden" name="destinations" id="destination_destinations" value=""/>
+						<table class="table is-fullwidth">
+							<tbody id="destination_table"/>
+						</table>
+					</section>
+					<footer class="modal-card-foot">
+						<span class="button is-info" onclick="addDestination()">Add Destination</span>
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-primary" type="submit" onclick="submitDestinations()">Update</button>
 					</footer>
 				</form>
 				<form action="/project/upload" method="POST" enctype="multipart/form-data">
@@ -599,7 +588,7 @@
 		function showSettingsTab(index) {
 			var tabs = document.getElementById("project_settings_tabs");
 			var container = document.getElementById("project_settings_container");
-			for (var i = 0; i &lt; 5; ++i) {
+			for (var i = 0; i &lt; 6; ++i) {
 				tabs.children[i].removeClass("is-active");
 				container.children[i].style.display = "none";
 			}
@@ -626,16 +615,20 @@
 			document.getElementById("update_labels").value = this.labels;
 			document.getElementById("update_url").value = this.url;
 			document.getElementById("update_branch").value = this.branch;
-			document.getElementById("update_destination").value = this.destination;
-			document.getElementById("update_tag").value = this.tag;
 			document.getElementById("update_buildSpec").value = this.buildSpec;
 			document.getElementById("update_prepackageSpec").value = this.prepackageSpec;
 			document.getElementById("update_packageSpec").value = this.packageSpec;
 			document.getElementById("update_protected").checked = this.protected;
 			document.getElementById("update_tagRepo").checked = this.tagRepo;
 			document.getElementById("upload_id").value = this.id;
+			document.getElementById("destination_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			document.getElementById("environment_id").value = this.id;
+			var destinations = document.getElementById("destination_table");
+			while (destinations.firstChild) destinations.removeChild(destinations.firstChild);
+			this.destinations.forEach(destination => {
+				addDestination(destination[0].toString(), destination[1]);
+			});
 			var triggers = document.getElementById("trigger_table");
 			while (triggers.firstChild) triggers.removeChild(triggers.firstChild);
 			this.triggers.forEach(trigger => {
@@ -685,6 +678,38 @@
 			}
 		}
 
+		function addDestination(registry, tag) {
+			var destinations = document.getElementById("destination_table");
+			var registrySelect = create("select",
+				create("option", {value: ""}, "--- Registry ---"),
+				registries.map(registry => create("option", {value: registry.id.toString()}, registry.name))
+			);
+			var tagEntry = create("input.input");
+			if (registry) registrySelect.value = registry.toString();
+			if (tag) tagEntry.value = tag;
+			var row = create("tr",
+				create("td", create("div.select", registrySelect)),
+				create("td", tagEntry),
+				create("td", create("span.button.is-danger", {"on-click": remove}, "Remove"))
+			);
+			destinations.appendChild(row);
+			function remove() {
+				destinations.removeChild(row);
+			}
+		}
+
+		function submitDestinations() {
+			var destinations = document.getElementById("destination_table");
+			var value = [];
+			destinations.childNodes.forEach(child => {
+				if (child.children[0].children[0].children[0].value !== "") value.push([
+					child.children[0].children[0].children[0].value,
+					child.children[1].children[0].value
+				]);
+			});
+			document.getElementById("destination_destinations").value = value;
+		}
+
 		function addTrigger(target, stage) {
 			var triggers = document.getElementById("trigger_table");
 			var targetSelect = create("select",
@@ -726,11 +751,6 @@
 				]);
 			});
 			document.getElementById("trigger_triggers").value = value;
-		}
-
-		function hideTriggers() {
-			var modal = document.getElementById("triggers");
-			modal.removeClass("is-active");
 		}
 
 		function addCredential(name, id, description) {
@@ -1031,8 +1051,7 @@
 		}
 
 		function updateRegistry(registry) {
-			document.getElementById("destination").appendChild(create("option", {value: registry.name}, registry.name));
-			document.getElementById("update_destination").appendChild(create("option", {value: registry.name}, registry.name));
+			registries[registry.id] = registry;
 		}
 
 		var events = null, fetchInterval = null;
