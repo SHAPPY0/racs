@@ -322,30 +322,30 @@
 		};
 
 		function updateTask(result) {
-			var project = projects[result.project];
-			var taskType = taskTypes[result.type];
-			if (taskType) {
-				if (!project.box || project.taskType &gt; taskType) {
-					project.tasks = create("div.tasks");
-					project.box = create("div.project",
-						create("div.name", "#", result.project.toString(), " ", project.name),
-						project.tasks
-					);
-					container.prependChild(project.box);
-				}
-				project.taskType = taskType;
-			} else {
-				if (!project.box) {
-					project.tasks = create("div.tasks");
-					project.box = create("div.project",
-						create("div.name", project.name, " #", result.project.toString()),
-						project.tasks
-					);
-					container.prependChild(project.box);
-				}
-			}
 			var task = tasks[result.id];
 			if (!task) {
+				var project = projects[result.project];
+				var taskType = taskTypes[result.type];
+				if (taskType) {
+					if (!project.box || project.taskType &gt; taskType) {
+						project.tasks = create("div.tasks");
+						project.box = create("div.project",
+							create("div.name", project.name, " #", result.project.toString()),
+							project.tasks
+						);
+						container.prependChild(project.box);
+					}
+					project.taskType = taskType;
+				} else {
+					if (!project.box) {
+						project.tasks = create("div.tasks");
+						project.box = create("div.project",
+							create("div.name", project.name, " #", result.project.toString()),
+							project.tasks
+						);
+						container.prependChild(project.box);
+					}
+				}
 				task = tasks[result.id] = {};
 				task.icon = create("i");
 				task.state = create("span.icon", task.icon);
@@ -385,7 +385,7 @@
 
 
 		function updateProject(result) {
-			projects[result.id] = {name: result.name};
+			projects[result.id] = projects[result.id] || {name: result.name};
 		}
 
 		var events = null, fetchInterval = null;

@@ -107,12 +107,13 @@ type registry struct {
 }
 
 type taskTrigger struct {
-	url     string
-	branch  string
-	commit  string
-	tag     string
-	project int
-	version int
+	url      string
+	branch   string
+	commit   string
+	tag      string
+	registry string
+	project  int
+	version  int
 }
 
 type taskRequest struct {
@@ -132,6 +133,11 @@ type destination struct {
 	tag      string
 }
 
+type trigger struct {
+	project *project
+	state   state
+}
+
 type project struct {
 	id             int
 	name           string
@@ -149,7 +155,7 @@ type project struct {
 	destinations   []destination
 	tasks          []*task
 	queue          chan taskRequest
-	triggers       map[*project]state
+	triggers       []trigger
 	credentials    map[string]*credential
 	prepareDep     *project
 	prepackageDep  *project
@@ -232,6 +238,7 @@ func projectEnvironment(p *project, request taskRequest) string {
 		fmt.Fprintf(f, "RACS_TRIGGER_COMMIT=%s\n", trigger.commit)
 		fmt.Fprintf(f, "RACS_TRIGGER_TAG=%s\n", trigger.tag)
 		fmt.Fprintf(f, "RACS_TRIGGER_PROJECT=%d\n", trigger.project)
+		fmt.Fprintf(f, "RACS_TRIGGER_REGISTRY=%s\n", trigger.registry)
 	}
 	for name, cr := range p.credentials {
 		fmt.Fprintf(f, "%s=%s\n", name, cr.value)
@@ -449,20 +456,24 @@ func projectRoutine(p *project) {
 			}
 			request = taskRequest{PUSHING, 0, request.trigger}
 		case PUSH_SUCCESS:
-			index := request.index + 1
+			index := request.index
+			if len(p.triggers) > 0 {
+				tag := ""
+				registry := ""
+				if index < len(p.destinations) {
+					destination := p.destinations[index]
+					tag = strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
+					registry = destination.registry.name
+				}
+				request2 := taskRequest{state, 0, &taskTrigger{p.url, p.branch, p.commit, tag, registry, p.id, p.version}}
+				for _, trigger := range p.triggers {
+					trigger.project.buildFrom(trigger.state, request2)
+				}
+			}
+			index = index + 1
 			if index < len(p.destinations) {
 				request = taskRequest{PUSHING, index, request.trigger}
 			} else {
-				tag := ""
-				if len(p.destinations) > 0 {
-					tag = strings.Replace(p.destinations[0].tag, "$VERSION", strconv.Itoa(p.version), -1)
-				}
-				if len(p.triggers) > 0 {
-					request2 := taskRequest{state, 0, &taskTrigger{p.url, p.branch, p.commit, tag, p.id, p.version}}
-					for p2, state2 := range p.triggers {
-						p2.buildFrom(state2, request2)
-					}
-				}
 				request = taskRequest{TAGGING, 0, request.trigger}
 			}
 		case TAG_SUCCESS:
@@ -497,7 +508,7 @@ func projectCreate(name, url, branch, labels string) *project {
 		make([]destination, 0),
 		make([]*task, 0),
 		make(chan taskRequest, 10),
-		make(map[*project]state),
+		make([]trigger, 0),
 		make(map[string]*credential),
 		nil, nil, nil, "",
 	}
@@ -550,9 +561,9 @@ func projectList() []map[string]interface{} {
 			})
 		}
 		triggers := make([]interface{}, 0)
-		for target, state := range p.triggers {
+		for _, trigger := range p.triggers {
 			triggers = append(triggers, []interface{}{
-				target.id, state.String(),
+				trigger.project.id, trigger.state.String(),
 			})
 		}
 		environment := make([]interface{}, 0)
@@ -787,9 +798,9 @@ func projectUpdateEvent(p *project) {
 		})
 	}
 	triggers := make([]interface{}, 0)
-	for target, state := range p.triggers {
+	for _, trigger := range p.triggers {
 		triggers = append(triggers, []interface{}{
-			target.id, state.String(),
+			trigger.project.id, trigger.state.String(),
 		})
 	}
 	environment := make([]interface{}, 0)
@@ -964,17 +975,17 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 	}
 	pid, _ := strconv.Atoi(params["id"])
 	p := projects[pid]
-	for target, state := range p.triggers {
-		switch state {
+	for _, trigger := range p.triggers {
+		switch trigger.state {
 		case PREPARING:
-			target.prepareDep = nil
+			trigger.project.prepareDep = nil
 		case PREPACKAGING:
-			target.prepackageDep = nil
+			trigger.project.prepackageDep = nil
 		case PACKAGING:
-			target.packageDep = nil
+			trigger.project.packageDep = nil
 		}
 	}
-	p.triggers = make(map[*project]state)
+	p.triggers = make([]trigger, 0)
 	db.Exec(`DELETE FROM triggers WHERE project = ?`, p.id)
 	triggers := strings.FieldsFunc(params["triggers"], func(c rune) bool {
 		return c == ','
@@ -1006,7 +1017,7 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 		case "tag":
 			s = TAGGING
 		}
-		p.triggers[t] = s
+		p.triggers = append(p.triggers, trigger{t, s})
 		db.Exec(`INSERT INTO triggers(project, target, state) VALUES(?, ?, ?)`, p.id, t.id, s.String())
 	}
 	projectUpdateEvent(p)
@@ -1448,7 +1459,7 @@ func main() {
 			make([]destination, 0),
 			make([]*task, 0),
 			make(chan taskRequest, 10),
-			make(map[*project]state),
+			make([]trigger, 0),
 			make(map[string]*credential),
 			nil, nil, nil, "",
 		}
@@ -1500,7 +1511,7 @@ func main() {
 		p := projects[pid]
 		t := projects[tid]
 		if p != nil && t != nil {
-			p.triggers[t] = states[stateName]
+			p.triggers = append(p.triggers, trigger{t, states[stateName]})
 			switch states[stateName] {
 			case PREPARING:
 				t.prepareDep = p
