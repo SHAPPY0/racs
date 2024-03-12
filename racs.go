@@ -118,8 +118,8 @@ type taskTrigger struct {
 
 type taskRequest struct {
 	state   state
-	index   int
 	trigger *taskTrigger
+	index   int
 }
 
 type credential struct {
@@ -181,7 +181,6 @@ var clients = &broker{
 	make(chan chan []byte),
 	make(map[chan []byte]bool),
 }
-var defaultRequest = taskRequest{NONE, 0, nil}
 
 func event(event map[string]interface{}) {
 	bytes, _ := json.Marshal(event)
@@ -222,8 +221,8 @@ func registryLogin(r *registry) string {
 	return r.url
 }
 
-func (p *project) buildFrom(state state, trigger taskRequest) {
-	p.queue <- taskRequest{state, 0, trigger.trigger}
+func (p *project) buildFrom(state state, trigger *taskTrigger) {
+	p.queue <- taskRequest{state, trigger, 0}
 }
 
 func projectEnvironment(p *project, request taskRequest) string {
@@ -409,13 +408,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			request = taskRequest{CLEANING, 0, request.trigger}
+			request = taskRequest{CLEANING, request.trigger, 0}
 		case CLEAN_SUCCESS:
-			request = taskRequest{CLONING, 0, request.trigger}
+			request = taskRequest{CLONING, request.trigger, 0}
 		case CLONE_SUCCESS:
-			request = taskRequest{PREPARING, 0, request.trigger}
+			request = taskRequest{PREPARING, request.trigger, 0}
 		case PREPARE_SUCCESS:
-			request = taskRequest{PULLING, 0, request.trigger}
+			request = taskRequest{PULLING, request.trigger, 0}
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -430,18 +429,22 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				request = taskRequest{PREPARING, 0, request.trigger}
+				request = taskRequest{PREPARING, request.trigger, 0}
 			} else {
-				request = taskRequest{BUILDING, 0, request.trigger}
+				if p.protected && request.trigger != nil {
+					request = taskRequest{BUILDING, request.trigger, 0}
+				} else {
+					request = <-p.queue
+				}
 			}
 		case BUILD_SUCCESS:
 			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 			if err == nil {
 				p.commit = strings.TrimSpace(string(out))
 			}
-			request = taskRequest{PREPACKAGING, 0, request.trigger}
+			request = taskRequest{PREPACKAGING, request.trigger, 0}
 		case PREPACKAGING_SUCCESS:
-			request = taskRequest{PACKAGING, 0, request.trigger}
+			request = taskRequest{PACKAGING, request.trigger, 0}
 		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
@@ -454,7 +457,7 @@ func projectRoutine(p *project) {
 			if err != nil {
 				logger.Error(err)
 			}
-			request = taskRequest{PUSHING, 0, request.trigger}
+			request = taskRequest{PUSHING, request.trigger, 0}
 		case PUSH_SUCCESS:
 			index := request.index
 			if len(p.triggers) > 0 {
@@ -465,21 +468,16 @@ func projectRoutine(p *project) {
 					tag = strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
 					registry = destination.registry.name
 				}
-				request2 := taskRequest{state, 0, &taskTrigger{p.url, p.branch, p.commit, tag, registry, p.id, p.version}}
+				taskTrigger := &taskTrigger{p.url, p.branch, p.commit, tag, registry, p.id, p.version}
 				for _, trigger := range p.triggers {
-					trigger.project.buildFrom(trigger.state, request2)
+					trigger.project.buildFrom(trigger.state, taskTrigger)
 				}
 			}
-			index = index + 1
-			if index < len(p.destinations) {
-				request = taskRequest{PUSHING, index, request.trigger}
-			} else {
-				request = taskRequest{TAGGING, 0, request.trigger}
-			}
+			request = taskRequest{TAGGING, request.trigger, index}
 		case TAG_SUCCESS:
 			index := request.index + 1
 			if index < len(p.destinations) {
-				request = taskRequest{TAGGING, index, request.trigger}
+				request = taskRequest{PUSHING, request.trigger, index}
 			} else {
 				request = <-p.queue
 			}
@@ -1081,23 +1079,23 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	if requestedRef == expectedRef {
 		switch stage {
 		case "clean":
-			p.buildFrom(CLEANING, defaultRequest)
+			p.buildFrom(CLEANING, nil)
 		case "clone":
-			p.buildFrom(CLONING, defaultRequest)
+			p.buildFrom(CLONING, nil)
 		case "prepare":
-			p.buildFrom(PREPARING, defaultRequest)
+			p.buildFrom(PREPARING, nil)
 		case "pull":
-			p.buildFrom(PULLING, defaultRequest)
+			p.buildFrom(PULLING, nil)
 		case "build":
-			p.buildFrom(BUILDING, defaultRequest)
+			p.buildFrom(BUILDING, nil)
 		case "prepackage":
-			p.buildFrom(PREPACKAGING, defaultRequest)
+			p.buildFrom(PREPACKAGING, nil)
 		case "package":
-			p.buildFrom(PACKAGING, defaultRequest)
+			p.buildFrom(PACKAGING, nil)
 		case "push":
-			p.buildFrom(PUSHING, defaultRequest)
+			p.buildFrom(PUSHING, nil)
 		case "tag":
-			p.buildFrom(TAGGING, defaultRequest)
+			p.buildFrom(TAGGING, nil)
 		}
 	} else {
 		logger.Infof("Build requested by %s expected %s, skipping", requestedRef, expectedRef)
@@ -1113,7 +1111,7 @@ func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params
 	id, _ := strconv.Atoi(params["id"])
 	confirm := params["confirm"]
 	if confirm == "YES" {
-		projects[id].buildFrom(DELETING, defaultRequest)
+		projects[id].buildFrom(DELETING, nil)
 	}
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
