@@ -431,7 +431,7 @@ func projectRoutine(p *project) {
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
 				request = taskRequest{PREPARING, request.trigger, 0}
 			} else {
-				if p.protected && request.trigger != nil {
+				if !p.protected || request.trigger == nil {
 					request = taskRequest{BUILDING, request.trigger, 0}
 				} else {
 					request = <-p.queue
