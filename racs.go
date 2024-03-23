@@ -1144,6 +1144,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 		var j map[string]interface{}
 		json.Unmarshal([]byte(params["payload"]), &j)
 		requestedRef = fmt.Sprint(j["ref"])
+	} else if params["ref"] != "" {
+		requestedRef = params["ref"]
 	}
 	if requestedRef == expectedRef {
 		switch stage {
@@ -1358,6 +1360,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
+	for name, value := range r.URL.Query() {
+		params[name] = value[0]
+	}
 	if strings.HasPrefix(contentType, "application/json") {
 		body, _ := ioutil.ReadAll(r.Body)
 		var j map[string]interface{}
@@ -1538,7 +1543,7 @@ func main() {
 		if err == nil {
 			p.commit = strings.TrimSpace(string(out))
 		}
-		fmt.Printf("%+v\n", p)
+		//fmt.Printf("%+v\n", p)
 		projects[p.id] = p
 		go projectRoutine(p)
 	}
