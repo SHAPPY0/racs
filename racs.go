@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,44 +37,47 @@ var logger = log.New(os.Stderr)
 type state int
 
 const (
-	DELETING             state = -3
-	DELETE_ERROR         state = -2
-	DELETE_SUCCESS       state = -1
-	NONE                 state = 0
-	CREATING             state = 1
-	CREATE_ERROR         state = 2
-	CREATE_SUCCESS       state = 3
-	CLEANING             state = 4
-	CLEAN_ERROR          state = 5
-	CLEAN_SUCCESS        state = 6
-	CLONING              state = 7
-	CLONE_ERROR          state = 8
-	CLONE_SUCCESS        state = 9
-	PREPARING            state = 10
-	PREPARE_ERROR        state = 11
-	PREPARE_SUCCESS      state = 12
-	PULLING              state = 13
-	PULL_ERROR           state = 14
-	PULL_SUCCESS         state = 15
-	BUILDING             state = 16
-	BUILD_ERROR          state = 17
-	BUILD_SUCCESS        state = 18
-	PREPACKAGING         state = 19
-	PREPACKAGING_ERROR   state = 20
-	PREPACKAGING_SUCCESS state = 21
-	PACKAGING            state = 22
-	PACKAGE_ERROR        state = 23
-	PACKAGE_SUCCESS      state = 24
-	PUSHING              state = 25
-	PUSH_ERROR           state = 26
-	PUSH_SUCCESS         state = 27
-	TAGGING              state = 28
-	TAG_ERROR            state = 29
-	TAG_SUCCESS          state = 30
+	DELETING           state = -3
+	DELETE_ERROR       state = -2
+	DELETE_SUCCESS     state = -1
+	NONE               state = 0
+	CREATING           state = 1
+	CREATE_ERROR       state = 2
+	CREATE_SUCCESS     state = 3
+	CLEANING           state = 4
+	CLEAN_ERROR        state = 5
+	CLEAN_SUCCESS      state = 6
+	CLONING            state = 7
+	CLONE_ERROR        state = 8
+	CLONE_SUCCESS      state = 9
+	PREPARING          state = 10
+	PREPARE_ERROR      state = 11
+	PREPARE_SUCCESS    state = 12
+	PULLING            state = 13
+	PULL_ERROR         state = 14
+	PULL_SUCCESS       state = 15
+	BUILDING           state = 16
+	BUILD_ERROR        state = 17
+	BUILD_SUCCESS      state = 18
+	PREPACKAGING       state = 19
+	PREPACKAGE_ERROR   state = 20
+	PREPACKAGE_SUCCESS state = 21
+	PACKAGING          state = 22
+	PACKAGE_ERROR      state = 23
+	PACKAGE_SUCCESS    state = 24
+	SCANNING           state = 25
+	SCAN_ERROR         state = 26
+	SCAN_SUCCESS       state = 27
+	PUSHING            state = 28
+	PUSH_ERROR         state = 29
+	PUSH_SUCCESS       state = 30
+	TAGGING            state = 31
+	TAG_ERROR          state = 32
+	TAG_SUCCESS        state = 33
 )
 
 func (s state) String() string {
-	return [34]string{
+	return [TAG_SUCCESS + 1 - DELETING]string{
 		"DELETING", "DELETE_ERROR", "DELETE_SUCCESS",
 		"NONE",
 		"CREATING", "CREATE_ERROR", "CREATE_SUCCESS",
@@ -84,9 +88,10 @@ func (s state) String() string {
 		"BUILDING", "BUILD_ERROR", "BUILD_SUCCESS",
 		"PREPACKAGING", "PREPACKAGE_ERROR", "PREPACKAGE_SUCCESS",
 		"PACKAGING", "PACKAGE_ERROR", "PACKAGE_SUCCESS",
+		"SCANNING", "SCAN_ERROR", "SCAN_SUCCESS",
 		"PUSHING", "PUSH_ERROR", "PUSH_SUCCESS",
 		"TAGGING", "TAG_ERROR", "TAG_SUCCESS",
-	}[s+3]
+	}[s-DELETING]
 }
 
 type task struct {
@@ -152,6 +157,7 @@ type project struct {
 	version        int
 	protected      bool
 	tagRepo        bool
+	scanner        bool
 	destinations   []destination
 	tasks          []*task
 	queue          chan taskRequest
@@ -160,6 +166,7 @@ type project struct {
 	prepareDep     *project
 	prepackageDep  *project
 	packageDep     *project
+	scanners       []*project
 	commit         string
 }
 
@@ -254,7 +261,9 @@ func projectRoutine(p *project) {
 		state := request.state
 		logger.Infof("Project %d received task %s", p.id, state.String())
 		command := ""
+		dir := ""
 		args := []string{}
+		env := []string{}
 		switch state {
 		case CLEANING:
 			command = "rm"
@@ -263,27 +272,37 @@ func projectRoutine(p *project) {
 			command = "git"
 			args = []string{"clone", "-v", "--recursive", "-b", p.branch, p.url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id)}
 		case PREPARING:
-			command = "podman"
-			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
-			args = []string{"build",
-				"--pull=newer",
-				"--squash",
-				"-f", spec,
-				"-t", fmt.Sprintf("builder-%d", p.id),
+			if p.buildSpec != "" {
+				command = "podman"
+				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
+				args = []string{"build",
+					"--pull=newer",
+					"--squash",
+					"-f", spec,
+					"-t", fmt.Sprintf("builder-%d", p.id),
+				}
+				if p.prepareDep != nil {
+					args = append(args, "--from", fmt.Sprintf("package-%d", p.prepareDep.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			} else {
+				command = "echo"
+				args = []string{"skipping prepare"}
 			}
-			if p.prepareDep != nil {
-				args = append(args, "--from", fmt.Sprintf("package-%d", p.prepareDep.id))
-			}
-			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PULLING:
 			command = "git"
 			args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "pull", "--recurse-submodules"}
 		case BUILDING:
-			command = "podman"
-			args = []string{"run", "--network=host", "--rm=true",
-				"--env-file", projectEnvironment(p, request),
-				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
-				"--read-only", fmt.Sprintf("builder-%d", p.id),
+			if p.buildSpec != "" {
+				command = "podman"
+				args = []string{"run", "--network=host", "--rm=true",
+					"--env-file", projectEnvironment(p, request),
+					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"--read-only", fmt.Sprintf("builder-%d", p.id),
+				}
+			} else {
+				command = "echo"
+				args = []string{"skipping build"}
 			}
 		case PREPACKAGING:
 			if p.prepackageSpec != "" {
@@ -305,21 +324,47 @@ func projectRoutine(p *project) {
 				args = []string{"skipping prepackage"}
 			}
 		case PACKAGING:
-			command = "podman"
-			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
-			args = []string{"build",
-				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
-				"--pull=newer",
-				"--squash",
-				"-f", spec,
-				"-t", fmt.Sprintf("package-%d", p.id),
+			if p.packageSpec != "" {
+				command = "podman"
+				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
+				args = []string{"build",
+					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"--pull=newer",
+					"--squash",
+					"-f", spec,
+					"-t", fmt.Sprintf("package-%d", p.id),
+				}
+				if p.packageDep != nil {
+					args = append(args, "--from", fmt.Sprintf("package-%d", p.packageDep.id))
+				} else if p.prepackageSpec != "" {
+					args = append(args, "--from", fmt.Sprintf("prepackage-%d", p.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			} else {
+				command = "echo"
+				args = []string{"skipping package"}
 			}
-			if p.packageDep != nil {
-				args = append(args, "--from", fmt.Sprintf("package-%d", p.packageDep.id))
-			} else if p.prepackageSpec != "" {
-				args = append(args, "--from", fmt.Sprintf("prepackage-%d", p.id))
+		case SCANNING:
+			if request.index < len(p.scanners) {
+				s := p.scanners[request.index]
+				command = "bash"
+				args = []string{"scan.sh", fmt.Sprintf("package-%d", p.id)}
+				dir = fmt.Sprintf("%s/%d/workspace/source", projectAbs, s.id)
+				env = []string{
+					fmt.Sprintf("RACS_SCAN=%s", fmt.Sprintf("package-%d", p.id)),
+					fmt.Sprintf("RACS_VERSION=%d", p.version),
+					fmt.Sprintf("RACS_SCAN_URL=%s", p.url),
+					fmt.Sprintf("RACS_SCAN_BRANCH=%s", p.branch),
+					fmt.Sprintf("RACS_SCAN_COMMIT=%s", p.commit),
+					fmt.Sprintf("RACS_SCAN_PROJECT=%d", p.id),
+				}
+				for name, cr := range p.credentials {
+					env = append(env, fmt.Sprintf("%s=%s", name, cr.value))
+				}
+			} else {
+				command = "echo"
+				args = []string{"skipping scan"}
 			}
-			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PUSHING:
 			if request.index < len(p.destinations) {
 				destination := p.destinations[request.index]
@@ -375,6 +420,8 @@ func projectRoutine(p *project) {
 			os.Mkdir(taskRoot, 0777)
 			logger.Infof("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
+			cmd.Dir = dir
+			cmd.Env = append(cmd.Environ(), env...)
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
 			out.WriteString("\u001B[1m")
 			out.WriteString(cmd.String())
@@ -443,7 +490,7 @@ func projectRoutine(p *project) {
 				p.commit = strings.TrimSpace(string(out))
 			}
 			request = taskRequest{PREPACKAGING, request.trigger, 0}
-		case PREPACKAGING_SUCCESS:
+		case PREPACKAGE_SUCCESS:
 			request = taskRequest{PACKAGING, request.trigger, 0}
 		case PACKAGE_SUCCESS:
 			p.version += 1
@@ -457,7 +504,18 @@ func projectRoutine(p *project) {
 			if err != nil {
 				logger.Error(err)
 			}
-			request = taskRequest{PUSHING, request.trigger, 0}
+			if len(p.scanners) > 0 {
+				request = taskRequest{SCANNING, request.trigger, 0}
+			} else {
+				request = taskRequest{PUSHING, request.trigger, 0}
+			}
+		case SCAN_SUCCESS:
+			index := request.index + 1
+			if index < len(p.scanners) {
+				request = taskRequest{SCANNING, request.trigger, index}
+			} else {
+				request = taskRequest{PUSHING, request.trigger, 0}
+			}
 		case PUSH_SUCCESS:
 			index := request.index
 			if len(p.triggers) > 0 {
@@ -494,21 +552,21 @@ func projectRoutine(p *project) {
 
 func projectCreate(name, url, branch, labels string) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, labels, buildSpec, prepackageSpec, packageSpec, state, version, protected, tagRepo)
-		VALUES(?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0, 0, 0) RETURNING id`, name, url, branch, labels).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, labels, buildSpec, prepackageSpec, packageSpec, state, version, protected, tagRepo, scanner)
+		VALUES(?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0, 0, 0, 0) RETURNING id`, name, url, branch, labels).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
 		id, name, labels, url, branch, "BuildSpec", "", "PackageSpec", []byte{},
-		CREATE_SUCCESS, 0, false, false,
+		CREATE_SUCCESS, 0, false, false, false,
 		make([]destination, 0),
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make([]trigger, 0),
 		make(map[string]*credential),
-		nil, nil, nil, "",
+		nil, nil, nil, make([]*project, 0), "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -526,6 +584,7 @@ func projectCreate(name, url, branch, labels string) *project {
 		"version":        p.version,
 		"protected":      p.protected,
 		"tagRepo":        p.tagRepo,
+		"scanner":        p.scanner,
 	})
 	return p
 }
@@ -585,6 +644,7 @@ func projectList() []map[string]interface{} {
 			"version":        p.version,
 			"protected":      p.protected,
 			"tagRepo":        p.tagRepo,
+			"scanner":        p.scanner,
 			"triggers":       triggers,
 			"environment":    environment,
 		})
@@ -820,6 +880,7 @@ func projectUpdateEvent(p *project) {
 		"packageSpec":    p.packageSpec,
 		"protected":      p.protected,
 		"tagRepo":        p.tagRepo,
+		"scanner":        p.scanner,
 		"triggers":       triggers,
 		"environment":    environment,
 	})
@@ -855,8 +916,9 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		}
 		p.protected = params["protected"] != ""
 		p.tagRepo = params["tagRepo"] != ""
-		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, tagRepo = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.tagRepo, p.id)
+		p.scanner = params["scanner"] != ""
+		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, tagRepo = ?, scanner = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.tagRepo, p.scanner, p.id)
 		projectUpdateEvent(p)
 		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
@@ -981,6 +1043,10 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 			trigger.project.prepackageDep = nil
 		case PACKAGING:
 			trigger.project.packageDep = nil
+		case SCANNING:
+			trigger.project.scanners = slices.DeleteFunc(trigger.project.scanners, func(q *project) bool {
+				return p == q
+			})
 		}
 	}
 	p.triggers = make([]trigger, 0)
@@ -1010,6 +1076,9 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 		case "package":
 			s = PACKAGING
 			t.packageDep = p
+		case "scan":
+			s = SCANNING
+			t.scanners = append(t.scanners, p)
 		case "push":
 			s = PUSHING
 		case "tag":
@@ -1092,6 +1161,8 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 			p.buildFrom(PREPACKAGING, nil)
 		case "package":
 			p.buildFrom(PACKAGING, nil)
+		case "scan":
+			p.buildFrom(SCANNING, nil)
 		case "push":
 			p.buildFrom(PUSHING, nil)
 		case "tag":
@@ -1405,6 +1476,7 @@ func main() {
 				}
 			}
 			version += 1
+			db.Exec(`UPDATE config SET value = ? WHERE name = 'version'`, version)
 		}
 	}
 
@@ -1432,7 +1504,7 @@ func main() {
 		cr := &credential{id, description, value}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tagRepo FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tagRepo, scanner FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1447,19 +1519,20 @@ func main() {
 		var version int
 		var protected int
 		var tagRepo int
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo)
+		var scanner int
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo, &scanner)
 		if err != nil {
 			logger.Error(err)
 		}
 		p := &project{
 			id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash,
-			states[stateName], version, protected == 1, tagRepo == 1,
+			states[stateName], version, protected == 1, tagRepo == 1, scanner == 1,
 			make([]destination, 0),
 			make([]*task, 0),
 			make(chan taskRequest, 10),
 			make([]trigger, 0),
 			make(map[string]*credential),
-			nil, nil, nil, "",
+			nil, nil, nil, make([]*project, 0), "",
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {
@@ -1517,6 +1590,8 @@ func main() {
 				t.prepackageDep = p
 			case PACKAGING:
 				t.packageDep = p
+			case SCANNING:
+				t.scanners = append(t.scanners, p)
 			}
 		}
 	}

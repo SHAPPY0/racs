@@ -32,5 +32,3 @@ WHERE
 
 ALTER TABLE projects DROP COLUMN destination;
 ALTER TABLE projects DROP COLUMN tag;
-
-UPDATE config SET value = 2 WHERE name = 'version';
