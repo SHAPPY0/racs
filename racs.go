@@ -485,14 +485,16 @@ func projectRoutine(p *project) {
 				}
 			}
 		case BUILD_SUCCESS:
-			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
-			if err == nil {
-				p.commit = strings.TrimSpace(string(out))
-			}
 			request = taskRequest{PREPACKAGING, request.trigger, 0}
 		case PREPACKAGE_SUCCESS:
 			request = taskRequest{PACKAGING, request.trigger, 0}
 		case PACKAGE_SUCCESS:
+			request = taskRequest{SCANNING, request.trigger, 0}
+		case SCAN_SUCCESS:
+			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
+			if err == nil {
+				p.commit = strings.TrimSpace(string(out))
+			}
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
 			event(map[string]interface{}{
@@ -500,16 +502,10 @@ func projectRoutine(p *project) {
 				"id":      p.id,
 				"version": p.version,
 			})
-			_, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "tag", fmt.Sprintf("r%d", p.version)).Output()
+			_, err = exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "tag", fmt.Sprintf("r%d", p.version)).Output()
 			if err != nil {
 				logger.Error(err)
 			}
-			if len(p.scanners) > 0 {
-				request = taskRequest{SCANNING, request.trigger, 0}
-			} else {
-				request = taskRequest{PUSHING, request.trigger, 0}
-			}
-		case SCAN_SUCCESS:
 			index := request.index + 1
 			if index < len(p.scanners) {
 				request = taskRequest{SCANNING, request.trigger, index}

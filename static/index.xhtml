@@ -550,6 +550,16 @@
 						</div>
 					</div>
 				</div>
+				<div class="navbar-item">
+					<div class="field">
+						<p class="control has-icons-left">
+							<input class="input is-small" id="name-filter"/>
+							<span class="icon is-left">
+								<i class="fas fa-filter"/>
+							</span>
+						</p>
+					</div>
+				</div>
 				<div class="navbar-item" id="out-actions" style="display:none;">
 					<div class="buttons">
 						<button class="button is-small is-primary" onclick="showLogin()">Login</button>
@@ -916,6 +926,8 @@
 			container.scrollTop = container.scrollHeight;
 		}
 
+		document.getElementById("name-filter").oninput = filterProjects;
+
 		var filter = JSON.parse(sessionStorage.getItem("filter") || "{}");
 		var labels = {};
 
@@ -951,12 +963,14 @@
 		}
 
 		function filterProjects() {
+			var nameFilter = document.getElementById("name-filter").value.toLowerCase();
 			function visible(element) {
 				for (var label in labels) {
 					if (labels[label].checked &amp;&amp; (element.labels.indexOf(label) === -1)) {
 						return false;
 					}
 				}
+				if (element.name.indexOf(nameFilter) === -1) return false;
 				return true;
 			}
 			var cards = container.children;
@@ -1026,6 +1040,7 @@
 						)
 					)
 				);
+				project.card.name = result.name.toLowerCase();
 				project.card.labels = labels;
 				container.appendChild(project.card);
 			}
