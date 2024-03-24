@@ -135,62 +135,7 @@
 		.project progress {
 			width: 10rem;
 			border: 1px solid black;
-			position: relative;
 		}
-
-		.progress.running::after {
-			position: absolute;
-			top: 0;
-			bottom: 0;
-			width: 10px;
-			background-color: #ededed;
-			-webkit-animation-duration: 1s;
-			animation-duration: 1s;
-			-webkit-animation-iteration-count: infinite;
-			animation-iteration-count: infinite;
-			-webkit-animation-name: running;
-			animation-name: running;
-			-webkit-animation-timing-function: linear;
-			animation-timing-function: linear;
-			content: "";
-			/*mask-image: repeating-linear-gradient(-45deg, transparent, transparent 10px, #FFF 10px, #FFF 20px);*/
-		}
-
-		@-webkit-keyframes running {
-			from {
-				left: 0%;
-			}
-			to {
-				left: 100%;
-			}
-		}
-
-		@keyframes running {
-			from {
-				left: 0%;
-			}
-			to {
-				left: 100%;
-			}
-		}
-		
-		/*@-webkit-keyframes running {
-			from {
-				mask-position: 0px 0px;
-			}
-			to {
-				mask-position: 28.2842712474619px 0px;
-			}
-		}
-
-		@keyframes running {
-			from {
-				mask-position: 0px 0px;
-			}
-			to {
-				mask-position: 28.2842712474619px 0px;
-			}
-		}*/
 
 		.project .build-menu {
 			vertical-align: middle;
@@ -986,12 +931,10 @@
 			project.state.removeClass("is-info");
 			project.state.removeClass("is-success");
 			project.state.removeClass("is-danger");
-			project.state.removeClass("running");
 			switch (result.state) {
 			case "RUNNING":
 				project.state.addClass("is-info");
-				project.state.addClass("running");
-				task.icon.addClass("fa-spinner");
+				task.icon.addClass("fa-cog");
 				task.icon.addClass("fa-spin");
 				task.state.addClass("has-text-info");
 				break;
