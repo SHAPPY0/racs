@@ -26,7 +26,7 @@
 	<meta name="msapplication-TileImage" content="/ms-icon-144x144.png"/>
 	<meta name="theme-color" content="#ffffff"/>
 	<style>
-		.project {
+		/*.project {
 			border: 2px solid;
 			border-radius: 5px;
 			width: 58rem;
@@ -34,33 +34,36 @@
 			position: relative;
 			overflow: hidden;
 			background-color: white;
-		}
+		}*/
 
-		.project.running {
+		/*.project.running progress {
 			border-color: deepskyblue;
-			/*background-color: rgba(0, 191, 255, 0.2);*/
+			background-color: rgba(0, 191, 255, 0.2);
 		}
 
-		.project.success {
+		.project.success progress {
 			border-color:mediumseagreen;
-			/*background-color: rgba(60, 179, 114, 0.2);*/
+			background-color: rgba(60, 179, 114, 0.2);
 		}
 
-		.project.error {
+		.project.error progress {
 			border-color: crimson;
-			/*background-color: rgba(220, 20, 60, 0.2);*/
+			background-color: rgba(220, 20, 60, 0.2);
+		}*/
+
+		.project td {
+			vertical-align: middle;
 		}
 
 		.project .id {
 			text-align: right;
-			width: 2.5rem;
 			font-size: 1.3rem;
 			font-weight: bold;
 			vertical-align: middle;
 			height: 100%;
 		}
 
-		.project.running .id {
+		/*.project.running .id {
 			background-color: rgba(0, 191, 255, 0.2);
 		}
 
@@ -70,10 +73,9 @@
 
 		.project.error .id {
 			background-color: rgba(220, 20, 60, 0.2);
-		}
+		}*/
 
 		.project .project-title {
-			width: 20rem;
 			vertical-align: middle;
 		}
 
@@ -85,9 +87,7 @@
 		}
 
 		.project .version {
-			display: inline-block;
 			text-align: center;
-			width: 2rem;
 			color: darkblue;
 			vertical-align: middle;
 		}
@@ -109,7 +109,6 @@
 		}
 
 		.project .tasks {
-			width: 20rem;
 			height: 3rem;
 			overflow: auto;
 			vertical-align: middle;
@@ -133,7 +132,6 @@
 		}
 
 		.project .build-menu {
-			width: 10rem;
 			vertical-align: middle;
 			text-align: center;
 			padding-top: 4px;
@@ -582,13 +580,14 @@
 		</div>
 	</nav>
 	<div>
-		<table class="table.is-compact" style="margin:1rem auto;">
+		<table class="table is-compact is-bordered" style="margin:1rem auto;">
 			<thead>
-				<th>Id</th>
-				<th>Project</th>
-				<th>Ver</th>
-				<th>Task</th>
-				<th>Actions</th>
+				<th class="has-text-centered">Id</th>
+				<th class="has-text-centered">Project</th>
+				<th class="has-text-centered">Ver</th>
+				<th class="has-text-centered">Task</th>
+				<th class="has-text-centered">State</th>
+				<th class="has-text-centered">Actions</th>
 			</thead>
 			<tbody id="projects"/>
 		</table>
@@ -922,21 +921,21 @@
 			//task.box.classList = "task notification mb-0 ml-2 p-2 is-light";
 			var card = project.card;
 			card.classList = "project";
+			project.state.removeClass("is-info");
+			project.state.removeClass("is-success");
+			project.state.removeClass("is-danger");
 			switch (result.state) {
 			case "RUNNING":
-				project.card.addClass("running");
-				//task.box.addClass("is-info");
+				project.state.addClass("is-info");
 				task.icon.addClass("fa-spinner");
 				task.icon.addClass("fa-spin");
 				break;
 			case "SUCCESS":
-				project.card.addClass("success");
-				//task.box.addClass("is-success");
+				project.state.addClass("is-success");
 				task.icon.addClass("fa-check-square");
 				break;
 			case "ERROR":
-				project.card.addClass("error");
-				//task.box.addClass("is-danger");
+				project.state.addClass("is-danger");
 				task.icon.addClass("fa-exclamation-triangle");
 				break;
 			}
@@ -1008,11 +1007,51 @@
 			}
 		}
 
+		const taskTypes = {
+			DELETING: -3,
+			DELETE_ERROR: -2,
+			DELETE_SUCCESS: -1,
+			NONE: 0,
+			CREATING: 1,
+			CREATE_ERROR: 2,
+			CREATE_SUCCESS: 3,
+			CLEANING: 4,
+			CLEAN_ERROR: 5,
+			CLEAN_SUCCESS: 6,
+			CLONING: 7,
+			CLONE_ERROR: 8,
+			CLONE_SUCCESS: 9,
+			PREPARING: 10,
+			PREPARE_ERROR: 11,
+			PREPARE_SUCCESS: 12,
+			PULLING: 13,
+			PULL_ERROR: 14,
+			PULL_SUCCESS: 15,
+			BUILDING: 16,
+			BUILD_ERROR: 17,
+			BUILD_SUCCESS: 18,
+			PREPACKAGING: 19,
+			PREPACKAGE_ERROR: 20,
+			PREPACKAGE_SUCCESS: 21,
+			PACKAGING: 22,
+			PACKAGE_ERROR: 23,
+			PACKAGE_SUCCESS: 24,
+			SCANNING: 25,
+			SCAN_ERROR: 26,
+			SCAN_SUCCESS: 27,
+			PUSHING: 28,
+			PUSH_ERROR: 29,
+			PUSH_SUCCESS: 30,
+			TAGGING: 31,
+			TAG_ERROR: 32,
+			TAG_SUCCESS: 33
+		};
+
 		function updateProject(result) {
 			var project = projects[result.id];
 			if (!project) {
 				project = projects[result.id] = {
-					state: create("span.tag"),
+					state: create("progress.progress", {max: taskTypes.TAG_SUCCESS}),
 					tasks: create("div.tasks"),
 					version: create("span")
 				};
@@ -1054,6 +1093,7 @@
 					),
 					create("td.version", create("span", project.version)),
 					create("td", project.tasks),
+					create("td", project.state),
 					create("td.build-menu", buildMenu, " ",
 						create("button.is-primary", {"on-click": showSettings.bind(result)},
 							create("span.icon", create("i.fas.fa-tools"))
@@ -1067,15 +1107,16 @@
 			for (var key in result) {
 				switch (key) {
 				case "state": {
-					project.state.textContent = result.state;
-					project.state.classList = "tag";
-					if (result.state.endsWith("_SUCCESS")) {
+					/*project.state.textContent = result.state;
+					project.state.classList = "tag";*/
+					project.state.value = taskTypes[result.state];
+					/*if (result.state.endsWith("_SUCCESS")) {
 						project.state.addClass("is-success");
 					} else if (result.state.endsWith("_ERROR")) {
 						project.state.addClass("is-danger");
 					} else {
 						project.state.addClass("is-info");
-					}
+					}*/
 					break;
 				}
 				case "tasks": {
