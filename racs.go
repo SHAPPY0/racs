@@ -123,6 +123,7 @@ type taskTrigger struct {
 
 type taskRequest struct {
 	state   state
+	from    state
 	trigger *taskTrigger
 	index   int
 }
@@ -229,7 +230,7 @@ func registryLogin(r *registry) string {
 }
 
 func (p *project) buildFrom(state state, trigger *taskTrigger) {
-	p.queue <- taskRequest{state, trigger, 0}
+	p.queue <- taskRequest{state, state, trigger, 0}
 }
 
 func projectEnvironment(p *project, request taskRequest) string {
@@ -366,7 +367,10 @@ func projectRoutine(p *project) {
 				args = []string{"skipping scan"}
 			}
 		case PUSHING:
-			if request.index < len(p.destinations) {
+			if request.from == SCANNING {
+				command = "echo"
+				args = []string{"skipping push"}
+			} else if request.index < len(p.destinations) {
 				destination := p.destinations[request.index]
 				url := registryLogin(destination.registry)
 				tag := strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
@@ -377,7 +381,10 @@ func projectRoutine(p *project) {
 				args = []string{"skipping push"}
 			}
 		case TAGGING:
-			if p.tagRepo {
+			if request.from == SCANNING {
+				command = "echo"
+				args = []string{"skipping tag"}
+			} else if p.tagRepo {
 				if request.index < len(p.destinations) {
 					destination := p.destinations[request.index]
 					tag := strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
@@ -455,13 +462,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			request = taskRequest{CLEANING, request.trigger, 0}
+			request = taskRequest{CLEANING, request.from, request.trigger, 0}
 		case CLEAN_SUCCESS:
-			request = taskRequest{CLONING, request.trigger, 0}
+			request = taskRequest{CLONING, request.from, request.trigger, 0}
 		case CLONE_SUCCESS:
-			request = taskRequest{PREPARING, request.trigger, 0}
+			request = taskRequest{PREPARING, request.from, request.trigger, 0}
 		case PREPARE_SUCCESS:
-			request = taskRequest{PULLING, request.trigger, 0}
+			request = taskRequest{PULLING, request.from, request.trigger, 0}
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -476,21 +483,19 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				request = taskRequest{PREPARING, request.trigger, 0}
+				request = taskRequest{PREPARING, request.from, request.trigger, 0}
 			} else {
 				if !p.protected || request.trigger == nil {
-					request = taskRequest{BUILDING, request.trigger, 0}
+					request = taskRequest{BUILDING, request.from, request.trigger, 0}
 				} else {
 					request = <-p.queue
 				}
 			}
 		case BUILD_SUCCESS:
-			request = taskRequest{PREPACKAGING, request.trigger, 0}
+			request = taskRequest{PREPACKAGING, request.from, request.trigger, 0}
 		case PREPACKAGE_SUCCESS:
-			request = taskRequest{PACKAGING, request.trigger, 0}
+			request = taskRequest{PACKAGING, request.from, request.trigger, 0}
 		case PACKAGE_SUCCESS:
-			request = taskRequest{SCANNING, request.trigger, 0}
-		case SCAN_SUCCESS:
 			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 			if err == nil {
 				p.commit = strings.TrimSpace(string(out))
@@ -506,15 +511,17 @@ func projectRoutine(p *project) {
 			if err != nil {
 				logger.Error(err)
 			}
+			request = taskRequest{SCANNING, request.from, request.trigger, 0}
+		case SCAN_SUCCESS:
 			index := request.index + 1
 			if index < len(p.scanners) {
-				request = taskRequest{SCANNING, request.trigger, index}
+				request = taskRequest{SCANNING, request.from, request.trigger, index}
 			} else {
-				request = taskRequest{PUSHING, request.trigger, 0}
+				request = taskRequest{PUSHING, request.from, request.trigger, 0}
 			}
 		case PUSH_SUCCESS:
 			index := request.index
-			if len(p.triggers) > 0 {
+			if request.from != SCANNING && len(p.triggers) > 0 {
 				tag := ""
 				registry := ""
 				if index < len(p.destinations) {
@@ -527,11 +534,11 @@ func projectRoutine(p *project) {
 					trigger.project.buildFrom(trigger.state, taskTrigger)
 				}
 			}
-			request = taskRequest{TAGGING, request.trigger, index}
+			request = taskRequest{TAGGING, request.state, request.trigger, index}
 		case TAG_SUCCESS:
 			index := request.index + 1
-			if index < len(p.destinations) {
-				request = taskRequest{PUSHING, request.trigger, index}
+			if request.from != SCANNING && index < len(p.destinations) {
+				request = taskRequest{PUSHING, request.state, request.trigger, index}
 			} else {
 				request = <-p.queue
 			}
@@ -1126,9 +1133,36 @@ func handleProjectEnvironment(w http.ResponseWriter, r *http.Request, u *user, p
 }
 
 func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	id, _ := strconv.Atoi(params["id"])
+	var p *project
+	if params["id"] != "" {
+		id, _ := strconv.Atoi(params["id"])
+		p = projects[id]
+	} else if params["payload"] != "" {
+		var j map[string]interface{}
+		json.Unmarshal([]byte(params["payload"]), &j)
+		r := j["repository"].(map[string]interface{})
+		for _, project := range projects {
+			if project.url == r["clone_url"] || project.url == r["html_url"] || project.url == r["ssh_url"] {
+				p = project
+				break
+			}
+		}
+	} else if params["repository"] != "" {
+		var r map[string]interface{}
+		json.Unmarshal([]byte(params["repository"]), &r)
+		for _, project := range projects {
+			if project.url == r["clone_url"] || project.url == r["html_url"] || project.url == r["ssh_url"] {
+				p = project
+				break
+			}
+		}
+	}
+	if p == nil {
+		w.WriteHeader(400)
+		w.Write([]byte("Invalid project"))
+		return
+	}
 	stage := params["stage"]
-	p := projects[id]
 	if p.protected && u.Name == "" {
 		w.WriteHeader(403)
 		w.Write([]byte("Unauthorized"))
@@ -1364,7 +1398,13 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		var j map[string]interface{}
 		json.Unmarshal(body, &j)
 		for name, value := range j {
-			params[name] = fmt.Sprint(value)
+			switch v := value.(type) {
+			case string:
+				params[name] = v
+			default:
+				j, _ := json.Marshal(v)
+				params[name] = string(j)
+			}
 		}
 	} else if strings.HasPrefix(contentType, "multipart/form-data") {
 		r.ParseMultipartForm(10000000)
