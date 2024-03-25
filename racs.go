@@ -359,7 +359,7 @@ func projectRoutine(p *project) {
 					fmt.Sprintf("RACS_SCAN_COMMIT=%s", p.commit),
 					fmt.Sprintf("RACS_SCAN_PROJECT=%d", p.id),
 				}
-				for name, cr := range p.credentials {
+				for name, cr := range s.credentials {
 					env = append(env, fmt.Sprintf("%s=%s", name, cr.value))
 				}
 			} else {
