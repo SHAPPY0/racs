@@ -1132,6 +1132,18 @@ func handleProjectEnvironment(w http.ResponseWriter, r *http.Request, u *user, p
 	}
 }
 
+func findProject(ref string, repo map[string]interface{}) *project {
+	logger.Infof("Trying to match project %v, %v", ref, repo)
+	for _, p := range projects {
+		if p.url == repo["clone_url"] || p.url == repo["html_url"] || p.url == repo["ssh_url"] {
+			if fmt.Sprintf("refs/heads/%s", p.branch) == ref {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
 func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	var p *project
 	if params["id"] != "" {
@@ -1140,22 +1152,14 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	} else if params["payload"] != "" {
 		var j map[string]interface{}
 		json.Unmarshal([]byte(params["payload"]), &j)
-		r := j["repository"].(map[string]interface{})
-		for _, project := range projects {
-			if project.url == r["clone_url"] || project.url == r["html_url"] || project.url == r["ssh_url"] {
-				p = project
-				break
-			}
-		}
+		repo := j["repository"].(map[string]interface{})
+		ref := j["ref"].(string)
+		p = findProject(ref, repo)
 	} else if params["repository"] != "" {
-		var r map[string]interface{}
-		json.Unmarshal([]byte(params["repository"]), &r)
-		for _, project := range projects {
-			if project.url == r["clone_url"] || project.url == r["html_url"] || project.url == r["ssh_url"] {
-				p = project
-				break
-			}
-		}
+		var repo map[string]interface{}
+		json.Unmarshal([]byte(params["repository"]), &repo)
+		ref := params["ref"]
+		p = findProject(ref, repo)
 	}
 	if p == nil {
 		w.WriteHeader(400)
