@@ -225,7 +225,8 @@
 							<li><a onclick="showSettingsTab(2)">Upload</a></li>
 							<li><a onclick="showSettingsTab(3)">Triggers</a></li>
 							<li><a onclick="showSettingsTab(4)">Environment</a></li>
-							<li><a onclick="showSettingsTab(5)">Delete</a></li>
+							<li><a onclick="showSettingsTab(5)">Config</a></li>
+							<li><a onclick="showSettingsTab(6)">Delete</a></li>
 						</ul>
 					</div>
 				</p>
@@ -442,6 +443,26 @@
 						<button class="button is-primary" type="submit" onclick="submitEnvironment()">Update</button>
 					</footer>
 				</form>
+				<form action="/project/upload" method="POST">
+					<section class="modal-card-body">
+						<input type="hidden" name="redirect" value="/"/>
+						<input type="hidden" name="id" id="config_id" value=""/>
+						<input type="hidden" name="name" id="config_name" value=""/>
+						<div style="display:flex;height:100%;">
+							<div class="content mr-2 pr-2" style="flex:10rem 0 0;height:100%;overflow:auto;border-right:1px solid gray;">
+								<table class="table" id="config_list"/>
+							</div>
+							<div class="content" style="flex:1 1;height:100%;overflow:auto;">
+								<textarea class="textarea" id="config_text" name="value" style="width:100%;height:100%;"/>
+							</div>
+						</div>
+					</section>
+					<footer class="modal-card-foot">
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+						<button class="button is-primary" type="submit">Update</button>
+					</footer>
+				</form>
 				<form action="/project/delete" method="POST">
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
@@ -624,12 +645,38 @@
 		function showSettingsTab(index) {
 			var tabs = document.getElementById("project_settings_tabs");
 			var container = document.getElementById("project_settings_container");
-			for (var i = 0; i &lt; 6; ++i) {
+			for (var i = 0; i &lt; 7; ++i) {
 				tabs.children[i].removeClass("is-active");
 				container.children[i].style.display = "none";
 			}
 			tabs.children[index].addClass("is-active");
 			container.children[index].style.display = null;
+			if (index === 5) {
+				var id = document.getElementById("config_id").value;
+				var container = document.getElementById("config_list");
+				var textarea = document.getElementById("config_text");
+				while (container.firstChild) container.removeChild(container.firstChild);
+				textarea.value = "";
+				fetch("/project/config/list?id=" + id).then(response => response.json()).then(results => {
+					results.forEach(result => {
+						container.appendChild(create("tr", {"on-click": select.bind(null, result)},
+							create("th.name", result.name)/*,
+							create("td.size", result.size.toString()),
+							create("td.time", result.time)*/
+						));
+					});
+				});
+				function select(result, event) {
+					container.childNodes.forEach(node => node.removeClass("is-selected"));
+					event.currentTarget.addClass("is-selected");
+					var name = encodeURIComponent(result.name);
+					document.getElementById("config_name").value = "config/" + result.name;
+					fetch("/project/config/read?id=" + id + "&amp;name=" + name).then(response => response.text()).then(result => {
+						console.log(result);
+						textarea.value = result;
+					});
+				}
+			}
 		}
 
 		var stages = {
@@ -661,6 +708,7 @@
 			document.getElementById("destination_id").value = this.id;
 			document.getElementById("trigger_id").value = this.id;
 			document.getElementById("environment_id").value = this.id;
+			document.getElementById("config_id").value = this.id;
 			var destinations = document.getElementById("destination_table");
 			while (destinations.firstChild) destinations.removeChild(destinations.firstChild);
 			this.destinations.forEach(destination => {

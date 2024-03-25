@@ -254,6 +254,9 @@ func projectEnvironment(p *project, request taskRequest) string {
 }
 
 func projectRoutine(p *project) {
+	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, p.id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, p.id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/config", projectAbs, p.id), 0777)
 	exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 	logger.Infof("Project %d waiting for tasks", p.id)
 	request := <-p.queue
@@ -298,6 +301,7 @@ func projectRoutine(p *project) {
 				args = []string{"run", "--network=host", "--rm=true",
 					"--env-file", projectEnvironment(p, request),
 					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"-v", fmt.Sprintf("%s/%d/config:/config", projectAbs, p.id),
 					"--read-only", fmt.Sprintf("builder-%d", p.id),
 				}
 			} else {
@@ -329,6 +333,7 @@ func projectRoutine(p *project) {
 				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
 				args = []string{"build",
 					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"-v", fmt.Sprintf("%s/%d/config:/config", projectAbs, p.id),
 					"--pull=newer",
 					"--squash",
 					"-f", spec,
@@ -560,8 +565,12 @@ func projectCreate(name, url, branch, labels string) *project {
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/config", projectAbs, id), 0777)
 	p := &project{
-		id, name, labels, url, branch, "BuildSpec", "", "PackageSpec", []byte{},
+		id, name, labels, url, branch,
+		"workspace/source/BuildSpec",
+		"workspace/source/PrepackageSpec",
+		"workspace/source/PackageSpec", []byte{},
 		CREATE_SUCCESS, 0, false, false,
 		make([]destination, 0),
 		make([]*task, 0),
@@ -971,11 +980,11 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 	if checkLogin(u, "admin", w, "/project/upload", params) {
 		return
 	}
-	id, _ := strconv.Atoi(params["id"])
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
 	name := filepath.Clean(params["name"])
 	upload := filepath.Clean(params["upload"])
 	validUpload, _ := regexp.MatchString("^uploads/upload-[0-9]+$", upload)
-	p := projects[id]
 	if p == nil {
 		w.WriteHeader(500)
 	} else if name == "." {
@@ -983,7 +992,7 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 	} else if !validUpload {
 		w.WriteHeader(500)
 	} else {
-		err := os.Rename(upload, fmt.Sprintf("%s/%d/%s", projectAbs, id, name))
+		err := os.Rename(upload, fmt.Sprintf("%s/%d/%s", projectAbs, p.id, name))
 		if err != nil {
 			logger.Error(err)
 		}
@@ -995,6 +1004,48 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 			w.WriteHeader(200)
 			w.Write([]byte("OK"))
 		}
+	}
+}
+
+func handleProjectConfigList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/config", params) {
+		return
+	}
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
+	files := make([]map[string]interface{}, 0)
+	entries, _ := os.ReadDir(fmt.Sprintf("%s/%d/config", projectAbs, p.id))
+	for _, e := range entries {
+		if !e.IsDir() {
+			info, _ := e.Info()
+			files = append(files, map[string]interface{}{
+				"name": e.Name(),
+				"size": info.Size(),
+				"time": info.ModTime().Format(time.RFC3339),
+			})
+		}
+	}
+	w.Header().Add("Content-Type", "application/json")
+	j, _ := json.Marshal(files)
+	w.Write(j)
+}
+
+func handleProjectConfigRead(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/config", params) {
+		return
+	}
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
+	name := filepath.Clean(params["name"])
+	path := fmt.Sprintf("%s/%d/config/%s", projectAbs, p.id, name)
+	logger.Infof("Reading config %s", path)
+	text, err := ioutil.ReadFile(path)
+	if err != nil {
+		w.WriteHeader(404)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.Header().Add("Content-Type", "text/plain")
+		w.Write(text)
 	}
 }
 
@@ -1685,6 +1736,8 @@ func main() {
 	handlers["/project/environment"] = handleProjectEnvironment
 	handlers["/project/create"] = handleProjectCreate
 	handlers["/project/upload"] = handleProjectUpload
+	handlers["/project/config/list"] = handleProjectConfigList
+	handlers["/project/config/read"] = handleProjectConfigRead
 	handlers["/project/build"] = handleProjectBuild
 	handlers["/project/delete"] = handleProjectDelete
 	handlers["/task/list"] = handleTaskList
