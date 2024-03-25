@@ -26,74 +26,42 @@
 	<meta name="msapplication-TileImage" content="/ms-icon-144x144.png"/>
 	<meta name="theme-color" content="#ffffff"/>
 	<style>
-		/*.project {
-			border: 2px solid;
-			border-radius: 5px;
-			width: 58rem;
-			margin: 0.25rem 1rem;
+		#projects {
+			display: flex;
+			flex-wrap: wrap;
+			padding: 0.25rem;
+		}
+
+		.project {
+			width: 40rem;
+			height: 5rem;
+			padding: 1rem;
+			border: 2px solid lightgray;
+			margin: 0.5rem;
 			position: relative;
-			overflow: hidden;
-			background-color: white;
-		}*/
-
-		/*.project.running progress {
-			border-color: deepskyblue;
-			background-color: rgba(0, 191, 255, 0.2);
+			background: white;
+			border-radius: 0.5rem;
 		}
 
-		.project.success progress {
-			border-color:mediumseagreen;
-			background-color: rgba(60, 179, 114, 0.2);
-		}
-
-		.project.error progress {
-			border-color: crimson;
-			background-color: rgba(220, 20, 60, 0.2);
-		}*/
-
-		.project td {
-			vertical-align: middle;
-		}
-
-		.project .id {
+		.project .title {
 			text-align: right;
 			font-size: 1.3rem;
 			font-weight: bold;
-			vertical-align: middle;
-			height: 100%;
-		}
-
-		/*.project.running .id {
-			background-color: rgba(0, 191, 255, 0.2);
-		}
-
-		.project.success .id {
-			background-color: rgba(60, 179, 114, 0.2);
-		}
-
-		.project.error .id {
-			background-color: rgba(220, 20, 60, 0.2);
-		}*/
-
-		.project .project-title {
-			vertical-align: middle;
-		}
-
-		.project .name {
-			font-size: 1.2rem;
-			font-weight: bold;
-			text-align: center;
-			line-height: 1.2rem;
+			position: absolute;
+			top: 0.5rem;
+			left: 0.5rem;
 		}
 
 		.project .version {
 			text-align: center;
-			color: darkblue;
-			vertical-align: middle;
-		}
-
-		.project .version span {
-			font-size: 120%;
+			border: 1px solid green;
+			color: green;
+			border-radius: 4px;
+			display: inline-block;
+			padding: 2px;
+			font-size: 90%;
+			line-height: 0.9;
+			font-weight: normal;
 		}
 
 		.project .project-tags {
@@ -101,23 +69,33 @@
 			text-align: center;
 		}
 		
-		.project .project-tags span {
+		.project .tags {
+			position: absolute;
+			right: 10rem;
+			top: 0.25rem;
+		}
+
+		.project .tags span {
+			display: inline-block;
 			padding: 2px 4px;
 			border-radius: 4px;
 			color: white;
 			font-size: 0.8rem;
+			margin: 0.1rem;
 		}
 
 		.project .tasks {
-			height: 3rem;
+			height: 2rem;
 			overflow: auto;
 			vertical-align: middle;
-			margin: 0 1.5rem;
+			position: absolute;
+			left: 0;
+			bottom: 0;
 		}
 
 		.project .tasks .task {
 			display: flex;
-			height: 2.5rem;
+			height: 2rem;
 			padding: 0.25rem;
 			width: 20rem;
 		}
@@ -133,15 +111,22 @@
 		}
 
 		.project progress {
-			width: 10rem;
+			width: 15rem;
 			border: 1px solid black;
+			position: absolute;
+			right: 0.25rem;
+			bottom: 0.5rem;
 		}
 
 		.project .build-menu {
 			vertical-align: middle;
 			text-align: center;
 			padding-top: 4px;
+			position: absolute;
+			top: 0rem;
+			right: 0.25rem;
 		}
+
 		.modal-card-body {
 			height: 30em;
 		}
@@ -607,17 +592,7 @@
 		</div>
 	</nav>
 	<div>
-		<table class="table is-compact is-bordered" style="margin:1rem auto;">
-			<thead>
-				<th class="has-text-centered">Id</th>
-				<th class="has-text-centered">Project</th>
-				<th class="has-text-centered">Ver</th>
-				<th class="has-text-centered">Task</th>
-				<th class="has-text-centered">State</th>
-				<th class="has-text-centered">Actions</th>
-			</thead>
-			<tbody id="projects"/>
-		</table>
+		<div id="projects"/>
 	</div>
 	<script type="text/javascript">
 		let burger = document.getElementById("navbar-burger");
@@ -1033,7 +1008,7 @@
 				);
 				info.checked = input.checked = !!filter[label];
 			}
-			var tag = create("span", {style: `background:${info.colour}; margin:0 0.25em;`}, label);
+			var tag = create("span", {style: `background:${info.colour};`}, label);
 			return tag;
 		}
 
@@ -1143,20 +1118,16 @@
 						labelTags.push(labelTag(trimmed));
 					}
 				});
-				project.card = create("tr.project",
-					create("td.id", "#" + result.id),
-					create("td.project-title",
-						create("div.name", result.name),
-						create("div.project-tags", labelTags)
-					),
-					create("td.version", create("span", project.version)),
-					create("td", project.tasks),
-					create("td", project.state),
-					create("td.build-menu", buildMenu, " ",
+				project.card = create("div.project",
+					create("div.title", "#" + result.id + " " + result.name + " ", create("span.version", project.version)),
+					create("div.tags", labelTags),
+					project.tasks,
+					create("div.build-menu", buildMenu, " ",
 						create("button.is-primary", {"on-click": showSettings.bind(result)},
 							create("span.icon", create("i.fas.fa-tools"))
 						)
-					)
+					),
+					create("div", project.state)
 				);
 				project.card.name = result.name.toLowerCase();
 				project.card.labels = labels;
