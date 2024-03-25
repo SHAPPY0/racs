@@ -43,25 +43,23 @@
 			border-radius: 0.5rem;
 		}
 
-		.project .title {
-			text-align: right;
-			font-size: 1.3rem;
-			font-weight: bold;
+		.project .details {
 			position: absolute;
 			top: 0.5rem;
 			left: 0.5rem;
 		}
 
+		.project .name {
+			font-size: 1.2rem;
+			font-weight: bold;
+			text-decoration: underline;
+		}
+
 		.project .version {
 			text-align: center;
-			border: 1px solid green;
-			color: green;
-			border-radius: 4px;
-			display: inline-block;
-			padding: 2px;
-			font-size: 90%;
-			line-height: 0.9;
-			font-weight: normal;
+			font-size: 1.2rem;
+			color: blueviolet;
+			margin-left: 1rem;
 		}
 
 		.project .project-tags {
@@ -71,7 +69,7 @@
 		
 		.project .tags {
 			position: absolute;
-			right: 10rem;
+			right: 7rem;
 			top: 0.25rem;
 		}
 
@@ -93,25 +91,29 @@
 			bottom: 0;
 		}
 
-		.project .tasks .task {
+		.tasks .task {
 			display: flex;
 			height: 2rem;
 			padding: 0.25rem;
 			width: 20rem;
 		}
 
-		.project .tasks .task .type {
+		.tasks .task .type {
 			margin-left: 0.25em;
 			font-weight: bold;
 		}
 
-		.project .tasks .task .time {
+		.tasks .task .time {
 			flex-grow: 1;
 			text-align: right;
 		}
 
+		#task_list .task {
+			margin: auto;
+		}
+
 		.project progress {
-			width: 15rem;
+			width: 13rem;
 			border: 1px solid black;
 			position: absolute;
 			right: 0.25rem;
@@ -206,12 +208,13 @@
 					<div class="tabs is-centered is-toggle">
 						<ul id="project_settings_tabs">
 							<li><a onclick="showSettingsTab(0)">Settings</a></li>
-							<li><a onclick="showSettingsTab(1)">Destinations</a></li>
+							<li><a onclick="showSettingsTab(1)">Push</a></li>
 							<li><a onclick="showSettingsTab(2)">Upload</a></li>
 							<li><a onclick="showSettingsTab(3)">Triggers</a></li>
-							<li><a onclick="showSettingsTab(4)">Environment</a></li>
+							<li><a onclick="showSettingsTab(4)">Vars</a></li>
 							<li><a onclick="showSettingsTab(5)">Config</a></li>
-							<li><a onclick="showSettingsTab(6)">Delete</a></li>
+							<li><a onclick="showSettingsTab(6)">Logs</a></li>
+							<li><a onclick="showSettingsTab(7)">Delete</a></li>
 						</ul>
 					</div>
 				</p>
@@ -438,7 +441,7 @@
 								<table class="table" id="config_list"/>
 							</div>
 							<div class="content" style="flex:1 1;height:100%;overflow:auto;">
-								<textarea class="textarea" id="config_text" name="value" style="width:100%;height:100%;"/>
+								<textarea class="textarea" id="config_text" name="value" style="width:100%;height:100%;white-space:pre;font-family:monospace;"/>
 							</div>
 						</div>
 					</section>
@@ -448,6 +451,16 @@
 						<button class="button is-primary" type="submit">Update</button>
 					</footer>
 				</form>
+				<div>
+					<section class="modal-card-body" id="task_section">
+						<div class="tasks" id="task_list"/>
+					</section>
+					<footer class="modal-card-foot">
+						<span class="tag is-medium" id="task_status"/>
+						<span style="flex:1 1;"/>
+						<button class="button" onclick="hideProjectSettings()" type="reset">Cancel</button>
+					</footer>
+				</div>
 				<form action="/project/delete" method="POST">
 					<section class="modal-card-body">
 						<input type="hidden" name="redirect" value="/"/>
@@ -620,7 +633,7 @@
 		function showSettingsTab(index) {
 			var tabs = document.getElementById("project_settings_tabs");
 			var container = document.getElementById("project_settings_container");
-			for (var i = 0; i &lt; 7; ++i) {
+			for (var i = 0; i &lt; 8; ++i) {
 				tabs.children[i].removeClass("is-active");
 				container.children[i].style.display = "none";
 			}
@@ -632,7 +645,7 @@
 				var textarea = document.getElementById("config_text");
 				while (container.firstChild) container.removeChild(container.firstChild);
 				textarea.value = "";
-				fetch("/project/config/list?id=" + id).then(response => response.json()).then(results => {
+				fetch(`/project/config/list?id=${id}`).then(response => response.json()).then(results => {
 					results.forEach(result => {
 						container.appendChild(create("tr", {"on-click": select.bind(null, result)},
 							create("th.name", result.name)/*,
@@ -646,11 +659,45 @@
 					event.currentTarget.addClass("is-selected");
 					var name = encodeURIComponent(result.name);
 					document.getElementById("config_name").value = "config/" + result.name;
-					fetch("/project/config/read?id=" + id + "&amp;name=" + name).then(response => response.text()).then(result => {
+					fetch(`/project/config/read?id=${id}&amp;name=${name}`).then(response => response.text()).then(result => {
 						console.log(result);
 						textarea.value = result;
 					});
 				}
+			} else if (index === 6) {
+				var id = document.getElementById("config_id").value;
+				var list = document.getElementById("task_list");
+				while (list.firstChild) list.removeChild(list.firstChild);
+				fetch(`/task/list?id=${id}`).then(response => response.json()).then(results => {
+					results.forEach(result => {
+						var task = {};
+						task.icon = create("i.fa");
+						task.state = create("span.icon", task.icon);
+						switch (result.state) {
+						case "RUNNING":
+							task.icon.addClass("fa-cog");
+							task.icon.addClass("fa-spin");
+							task.state.addClass("has-text-info");
+							break;
+						case "SUCCESS":
+							task.icon.addClass("fa-check-square");
+							task.state.addClass("has-text-success");
+							break;
+						case "ERROR":
+							task.icon.addClass("fa-exclamation-triangle");
+							task.state.addClass("has-text-danger");
+							break;
+						}
+						var time = result.time.split(" ");
+						task.box = create("div.task", {"on-click": showTaskLogs.bind(result)},
+							create("span.state", task.state),
+							create("span.type", result.type),
+							create("span.time", time[0], " ", time[1], " ")
+						);
+						list.appendChild(task.box);
+					});
+					list.parentNode.scrollTop = list.parentNode.scrollHeight;
+				});
 			}
 		}
 
@@ -1118,19 +1165,17 @@
 						labelTags.push(labelTag(trimmed));
 					}
 				});
+				var name = create("a.name", "#" + result.id + " " + result.name);
 				project.card = create("div.project",
-					create("div.title", "#" + result.id + " " + result.name + " ", create("span.version", project.version)),
+					create("div.details", name, create("span.version", project.version)),
 					create("div.tags", labelTags),
 					project.tasks,
-					create("div.build-menu", buildMenu, " ",
-						create("button.is-primary", {"on-click": showSettings.bind(result)},
-							create("span.icon", create("i.fas.fa-tools"))
-						)
-					),
+					create("div.build-menu", buildMenu),
 					create("div", project.state)
 				);
 				project.card.name = result.name.toLowerCase();
 				project.card.labels = labels;
+				name.onclick = showSettings.bind(result);
 				container.appendChild(project.card);
 			}
 			for (var key in result) {

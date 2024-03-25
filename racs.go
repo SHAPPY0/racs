@@ -1281,22 +1281,40 @@ func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params
 
 func handleTaskList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	from, _ := strconv.ParseInt(params["from"], 10, 64)
-	rows, _ := db.Query(`SELECT project, id, type, state, time FROM tasks ORDER BY id DESC LIMIT 100 OFFSET ?`, from)
 	result := make([]interface{}, 0)
-	for rows.Next() {
-		var pid int
-		var id int
-		var kind string
-		var state string
-		var time string
-		rows.Scan(&pid, &id, &kind, &state, &time)
-		result = append(result, map[string]interface{}{
-			"project": pid,
-			"id":      id,
-			"type":    kind,
-			"state":   state,
-			"time":    time,
-		})
+	if params["id"] != "" {
+		pid, _ := strconv.Atoi(params["id"])
+		rows, _ := db.Query(`SELECT id, type, state, time FROM tasks WHERE project = ? ORDER BY id DESC LIMIT 100 OFFSET ?`, pid, from)
+		for rows.Next() {
+			var id int
+			var kind string
+			var state string
+			var time string
+			rows.Scan(&id, &kind, &state, &time)
+			result = append(result, map[string]interface{}{
+				"id":    id,
+				"type":  kind,
+				"state": state,
+				"time":  time,
+			})
+		}
+	} else {
+		rows, _ := db.Query(`SELECT project, id, type, state, time FROM tasks ORDER BY id DESC LIMIT 100 OFFSET ?`, from)
+		for rows.Next() {
+			var pid int
+			var id int
+			var kind string
+			var state string
+			var time string
+			rows.Scan(&pid, &id, &kind, &state, &time)
+			result = append(result, map[string]interface{}{
+				"project": pid,
+				"id":      id,
+				"type":    kind,
+				"state":   state,
+				"time":    time,
+			})
+		}
 	}
 	w.Header().Add("Content-Type", "application/json")
 	j, _ := json.Marshal(result)
