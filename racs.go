@@ -20,7 +20,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1093,9 +1092,13 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 		case PACKAGING:
 			trigger.project.packageDep = nil
 		case SCANNING:
-			trigger.project.scanners = slices.DeleteFunc(trigger.project.scanners, func(q *project) bool {
-				return p == q
-			})
+			scanners := trigger.project.scanners
+			for n, q := range scanners {
+				if p == q {
+					trigger.project.scanners = append(scanners[:n], scanners[n+1:]...)
+					break
+				}
+			}
 		}
 	}
 	p.triggers = make([]trigger, 0)
