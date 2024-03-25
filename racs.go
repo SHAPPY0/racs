@@ -158,7 +158,6 @@ type project struct {
 	version        int
 	protected      bool
 	tagRepo        bool
-	scanner        bool
 	destinations   []destination
 	tasks          []*task
 	queue          chan taskRequest
@@ -563,7 +562,7 @@ func projectCreate(name, url, branch, labels string) *project {
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
 	p := &project{
 		id, name, labels, url, branch, "BuildSpec", "", "PackageSpec", []byte{},
-		CREATE_SUCCESS, 0, false, false, false,
+		CREATE_SUCCESS, 0, false, false,
 		make([]destination, 0),
 		make([]*task, 0),
 		make(chan taskRequest, 10),
@@ -587,7 +586,6 @@ func projectCreate(name, url, branch, labels string) *project {
 		"version":        p.version,
 		"protected":      p.protected,
 		"tagRepo":        p.tagRepo,
-		"scanner":        p.scanner,
 	})
 	return p
 }
@@ -647,7 +645,6 @@ func projectList() []map[string]interface{} {
 			"version":        p.version,
 			"protected":      p.protected,
 			"tagRepo":        p.tagRepo,
-			"scanner":        p.scanner,
 			"triggers":       triggers,
 			"environment":    environment,
 		})
@@ -883,7 +880,6 @@ func projectUpdateEvent(p *project) {
 		"packageSpec":    p.packageSpec,
 		"protected":      p.protected,
 		"tagRepo":        p.tagRepo,
-		"scanner":        p.scanner,
 		"triggers":       triggers,
 		"environment":    environment,
 	})
@@ -919,9 +915,8 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 		}
 		p.protected = params["protected"] != ""
 		p.tagRepo = params["tagRepo"] != ""
-		p.scanner = params["scanner"] != ""
-		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, tagRepo = ?, scanner = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.tagRepo, p.scanner, p.id)
+		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, tagRepo = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.tagRepo, p.id)
 		projectUpdateEvent(p)
 		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
@@ -1549,7 +1544,7 @@ func main() {
 		cr := &credential{id, description, value}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tagRepo, scanner FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tagRepo FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -1564,14 +1559,13 @@ func main() {
 		var version int
 		var protected int
 		var tagRepo int
-		var scanner int
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo, &scanner)
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &stateName, &version, &protected, &tagRepo)
 		if err != nil {
 			logger.Error(err)
 		}
 		p := &project{
 			id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash,
-			states[stateName], version, protected == 1, tagRepo == 1, scanner == 1,
+			states[stateName], version, protected == 1, tagRepo == 1,
 			make([]destination, 0),
 			make([]*task, 0),
 			make(chan taskRequest, 10),
