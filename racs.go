@@ -841,6 +841,7 @@ func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params 
 	graph, _ := gv.Graph(graphviz.Directed)
 	graph.SetRankDir("LR")
 	graph.SetSplines("ortho")
+	graph.SetOverlap(false)
 	nodes := make(map[int]*cgraph.Node)
 	for _, p := range projects {
 		node, _ := graph.CreateNode(strconv.Itoa(p.id))
