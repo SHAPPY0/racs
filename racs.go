@@ -26,6 +26,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/goccy/go-graphviz"
+	"github.com/goccy/go-graphviz/cgraph"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/msteinert/pam"
 	"github.com/withmandala/go-log"
@@ -833,6 +835,39 @@ func handleProjectList(w http.ResponseWriter, r *http.Request, u *user, params m
 	w.Write(j)
 }
 
+var gv *graphviz.Graphviz
+
+func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	graph, _ := gv.Graph(graphviz.Directed)
+	graph.SetRankDir("LR")
+	nodes := make(map[int]*cgraph.Node)
+	for _, p := range projects {
+		node, _ := graph.CreateNode(strconv.Itoa(p.id))
+		node.SetLabel(p.name)
+		node.SetShape("box")
+		nodes[p.id] = node
+	}
+	for _, p := range projects {
+		pnode := nodes[p.id]
+		for _, t := range p.triggers {
+			tnode := nodes[t.project.id]
+			edge, _ := graph.CreateEdge("", pnode, tnode)
+			edge.SetLabel(t.state.String())
+		}
+	}
+
+	var svg bytes.Buffer
+	if err := gv.Render(graph, graphviz.SVG, &svg); err != nil {
+		logger.Fatal(err)
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.Header().Add("Content-Type", "image/svg+xml")
+		w.WriteHeader(200)
+		w.Write(svg.Bytes())
+	}
+}
+
 func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	id, _ := strconv.Atoi(params["id"])
 	p := projects[id]
@@ -1538,6 +1573,7 @@ func main() {
 	flag.IntVar(&port, "port", 8080, "Web server port")
 	flag.Parse()
 
+	gv = graphviz.New()
 	key := make([]byte, 32)
 	rand.Read(key)
 	ciph, _ = aes.NewCipher(key)
@@ -1750,6 +1786,7 @@ func main() {
 	handlers["/user/login"] = handleUserLogin
 	handlers["/user/logout"] = handleUserLogout
 	handlers["/project/list"] = handleProjectList
+	handlers["/project/graph"] = handleProjectGraph
 	handlers["/project/status"] = handleProjectStatus
 	handlers["/project/update"] = handleProjectUpdate
 	handlers["/project/destinations"] = handleProjectDestinations
