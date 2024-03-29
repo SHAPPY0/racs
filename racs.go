@@ -840,6 +840,7 @@ var gv *graphviz.Graphviz
 func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	graph, _ := gv.Graph(graphviz.Directed)
 	graph.SetRankDir("LR")
+	graph.SetSplines("ortho")
 	nodes := make(map[int]*cgraph.Node)
 	for _, p := range projects {
 		node, _ := graph.CreateNode(strconv.Itoa(p.id))
@@ -852,13 +853,13 @@ func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params 
 		for _, t := range p.triggers {
 			tnode := nodes[t.project.id]
 			edge, _ := graph.CreateEdge("", pnode, tnode)
-			edge.SetLabel(t.state.String())
+			edge.SetXLabel(t.state.String())
 		}
 	}
 
 	var svg bytes.Buffer
 	if err := gv.Render(graph, graphviz.SVG, &svg); err != nil {
-		logger.Fatal(err)
+		logger.Error(err)
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 	} else {
