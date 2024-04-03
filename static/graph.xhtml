@@ -33,7 +33,7 @@
 				<span class="is-size-4 ml-2 has-text-info has-text-weight-bold is-family-code">RACS</span>
 			</a>
 			<a class="navbar-item is-tab" href="/">Projects</a>
-			<a class="navbar-item is-tabe" href="/credentials.xhtml">Credentials</a>
+			<a class="navbar-item is-tab" href="/credentials.xhtml">Credentials</a>
 			<a class="navbar-item is-tab" href="/registries.xhtml">Registries</a>
 			<a class="navbar-item is-tab" href="/tasks.xhtml">Tasks</a>
 			<a class="navbar-item is-tab is-active" href="/graph.xhtml">Graph</a>
@@ -52,7 +52,6 @@
 				</div>
 				<div class="navbar-item" id="in-actions" style="display:none;">
 					<div class="buttons">
-						<button class="button is-small" onclick="showCreate()">Create Credential</button>
 						<button class="button is-small is-danger" onclick="showLogout()">Logout</button>
 					</div>
 				</div>
@@ -62,5 +61,23 @@
 	<div class="content">
 		<img src="/project/graph"/>
 	</div>
+	<script type="text/javascript">
+		fetch("/user/current").then(response => response.text()).then(name => {
+			console.log("User = ", name);
+			window.user = name;
+			var inActions = document.getElementById("in-actions");
+			var outActions = document.getElementById("out-actions");
+			if (name) {
+				inActions.style.display = null;
+				outActions.style.display = "none";
+			} else {
+				inActions.style.display = "none";
+				outActions.style.display = null;
+			}
+
+			fetchInterval = setInterval(fetchConfig, 1000);
+			fetchConfig();
+		});
+	</script>
 </body>
 </html>
