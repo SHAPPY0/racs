@@ -840,7 +840,9 @@ var gv *graphviz.Graphviz
 func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	graph, _ := gv.Graph(graphviz.Directed)
 	graph.SetRankDir("LR")
-	graph.SetSplines("ortho")
+	graph.SetSplines("polyline")
+	graph.SetConcentrate(true)
+	graph.SetRankSeparator(5)
 	graph.SetOverlap(false)
 	nodes := make(map[int]*cgraph.Node)
 	for _, p := range projects {
