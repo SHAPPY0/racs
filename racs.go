@@ -858,15 +858,33 @@ func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params 
 		}
 	}
 
-	var svg bytes.Buffer
-	if err := gv.Render(graph, graphviz.SVG, &svg); err != nil {
+	format := graphviz.SVG
+	contentType := "image/svg+xml"
+
+	switch params["format"] {
+	case "xdot":
+		format = graphviz.XDOT
+		contentType = "text/plain"
+	case "png":
+		format = graphviz.PNG
+		contentType = "image/png"
+	case "jpg":
+		format = graphviz.JPG
+		contentType = "image/jpeg"
+	default:
+		format = graphviz.SVG
+		contentType = "image/svg+xml"
+	}
+
+	var out bytes.Buffer
+	if err := gv.Render(graph, format, &out); err != nil {
 		logger.Error(err)
 		w.WriteHeader(500)
 		w.Write([]byte(err.Error()))
 	} else {
-		w.Header().Add("Content-Type", "image/svg+xml")
+		w.Header().Add("Content-Type", contentType)
 		w.WriteHeader(200)
-		w.Write(svg.Bytes())
+		w.Write(out.Bytes())
 	}
 }
 
