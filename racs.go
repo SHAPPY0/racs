@@ -100,6 +100,7 @@ type task struct {
 	kind  string
 	state string
 	time  string
+	cmd   *exec.Cmd
 }
 
 type registry struct {
@@ -182,6 +183,7 @@ var db *sql.DB
 var registries = map[int]*registry{}
 var credentials = map[int]*credential{}
 var projects = map[int]*project{}
+var activeTasks = map[int]*tasks{}
 var projectAbs, _ = filepath.Abs("projects")
 var clients = &broker{
 	make(chan []byte),
@@ -415,7 +417,7 @@ func projectRoutine(p *project) {
 				logger.Fatal(err)
 			}
 			logger.Infof("Creating task %d:%d", p.id, id)
-			t := &task{id, p.state.String(), "RUNNING", time}
+			t := &task{id, p.state.String(), "RUNNING", time, nil}
 			p.tasks = append(p.tasks, t)
 			if len(p.tasks) > 5 {
 				p.tasks = p.tasks[1:]
@@ -432,6 +434,8 @@ func projectRoutine(p *project) {
 			os.Mkdir(taskRoot, 0777)
 			logger.Infof("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
+			t.cmd = cmd
+			activeTasks[id] = t
 			cmd.Dir = dir
 			cmd.Env = append(cmd.Environ(), env...)
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
@@ -442,13 +446,18 @@ func projectRoutine(p *project) {
 			cmd.Stderr = out
 			err = cmd.Run()
 			if err != nil {
-				t.state = "ERROR"
+				if err.Error() == "signal: killed" {
+					t.state = "STOPPED"
+				} else {
+					t.state = "ERROR"
+				}
 				p.state += 1
 			} else {
 				t.state = "SUCCESS"
 				p.state += 2
 			}
 			out.Close()
+			delete(activeTasks, t.id)
 			logger.Infof("Task %d completed", t.id)
 			db.Exec(`UPDATE projects SET state = ? WHERE id = ?`, p.state.String(), p.id)
 			db.Exec(`UPDATE tasks SET state = ? WHERE id = ?`, t.state, t.id)
@@ -1317,6 +1326,28 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 	w.Write([]byte("OK"))
 }
 
+func handleTaskStop(w http.ResponseWriter, r *http.Request, u  *user, params map[string]string) {
+	if  params["id"] == "" {
+		w.WriteHeader(500)
+		w.Write([]byte("Task Id is required"))
+	} else {
+		id, _ := strconv.Atoi(params["id"])
+		if task := activeTasks[id]; task != nil {
+			if err := task.cmd.Process.Kill(); err != nil {
+				logger.Warnf("Unable to stop task %d", task.id)
+				w.WriteHeader(501)
+				w.Writer([]byte("Unable to stop task command"))
+			} else {
+				w.WriteHeader(200)
+				w.Write([]byte("OK"))
+			}
+		} else {
+			w.WriteHeader(200)
+			w.Write([]byte("OK"))
+		}
+	}
+}
+
 func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	if checkLogin(u, "admin", w, "/project/delete", params) {
 		return
@@ -1736,7 +1767,7 @@ func main() {
 		rows.Scan(&pid, &id, &kind, &state, &time)
 		p := projects[pid]
 		if p != nil {
-			p.tasks = append(p.tasks, &task{id, kind, state, time})
+			p.tasks = append(p.tasks, &task{id, kind, state, time, nil})
 			if len(p.tasks) > 5 {
 				p.tasks = p.tasks[1:]
 			}
@@ -1822,6 +1853,7 @@ func main() {
 	handlers["/project/delete"] = handleProjectDelete
 	handlers["/task/list"] = handleTaskList
 	handlers["/task/logs"] = handleTaskLogs
+	handlers["/task/stop"] = handleTaskStop
 	handlers["/registry/list"] = handleRegistryList
 	handlers["/registry/create"] = handleRegistryCreate
 	handlers["/registry/update"] = handleRegistryUpdate

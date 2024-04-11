@@ -252,6 +252,11 @@
 						clearInterval(taskInterval);
 						taskInterval = null;
 						break;
+					case "STOPPED":
+						tag.addClass("is-warning");
+						clearInterval(taskInterval);
+						taskInterval = null;
+						break;
 					}
 					response.text().then(text => {
 						logs += text;
@@ -375,6 +380,11 @@
 				//project.card.addClass("error");
 				task.box.addClass("is-danger");
 				task.icon.addClass("fa-exclamation-triangle");
+				break;
+			case "STOPPED":
+				//project.card.addClass("error");
+				task.box.addClass("is-warning");
+				task.icon.addClass("fa-ban");
 				break;
 			}
 		}

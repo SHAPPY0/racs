@@ -493,7 +493,9 @@
 				<pre id="task_logs" style="color:black;background:white;white-space:pre-wrap;"/>
 			</section>
 			<footer class="modal-card-foot">
+				<input type="hidden" id="task_id" />
 				<span class="tag is-medium" id="task_status"/>
+				<button class="button is-warning" onclick="stopTask()">Stop</button>
 				<span style="flex:1 1;"/>
 				<button class="button" onclick="hideTaskLogs()" type="reset">Close</button>
 			</footer>
@@ -688,6 +690,10 @@
 						case "ERROR":
 							task.icon.addClass("fa-exclamation-triangle");
 							task.state.addClass("has-text-danger");
+							break;
+						case "STOPPED":
+							task.icon.addClass("fa-ban");
+							task.state.addClass("has-text-warning");
 							break;
 						}
 						var time = result.time.split(" ");
@@ -925,6 +931,7 @@
 			var modal = document.getElementById("task_log");
 			modal.addClass("is-active");
 			var task = this.id;
+			document.getElementById("task_id").value = task;
 			var container = document.getElementById("task_logs");
 			var section = document.getElementById("task_section");
 			var tag = document.getElementById("task_status");
@@ -949,6 +956,11 @@
 						clearInterval(taskInterval);
 						taskInterval = null;
 						break;
+					case "STOPPED":
+						tag.addClass("is-warning");
+						clearInterval(taskInterval);
+						taskInterval = null;
+						break;
 					}
 					response.text().then(text => {
 						logs += text;
@@ -968,6 +980,15 @@
 				clearInterval(taskInterval);
 				taskInterval = null;
 			}
+		}
+
+		function stopTask() {
+			let taskId = document.getElementById("task_id").value;
+			fetch(`/task/stop?id=${taskId}`).then(response => {
+				if (response &amp;&amp; response.status == 200) {
+					alert("Task Stopped!!!")
+				}
+			});
 		}
 
 		var container = document.getElementById("projects");
@@ -1018,6 +1039,11 @@
 				project.state.addClass("is-danger");
 				task.icon.addClass("fa-exclamation-triangle");
 				task.state.addClass("has-text-danger");
+				break;
+			case "STOPPED":
+				project.state.addClass("is-warning");
+				task.icon.addClass("fa-ban");
+				task.state.addClass("has-text-warning");
 				break;
 			}
 			var container = project.tasks; /*.parentNode;*/
