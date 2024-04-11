@@ -183,7 +183,7 @@ var db *sql.DB
 var registries = map[int]*registry{}
 var credentials = map[int]*credential{}
 var projects = map[int]*project{}
-var activeTasks = map[int]*tasks{}
+var activeTasks = map[int]*task{}
 var projectAbs, _ = filepath.Abs("projects")
 var clients = &broker{
 	make(chan []byte),
@@ -1336,7 +1336,7 @@ func handleTaskStop(w http.ResponseWriter, r *http.Request, u  *user, params map
 			if err := task.cmd.Process.Kill(); err != nil {
 				logger.Warnf("Unable to stop task %d", task.id)
 				w.WriteHeader(501)
-				w.Writer([]byte("Unable to stop task command"))
+				w.Write([]byte("Unable to stop task command"))
 			} else {
 				w.WriteHeader(200)
 				w.Write([]byte("OK"))
