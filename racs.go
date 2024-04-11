@@ -26,6 +26,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/goccy/go-graphviz"
+	"github.com/goccy/go-graphviz/cgraph"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/msteinert/pam"
 	"github.com/withmandala/go-log"
@@ -36,44 +38,47 @@ var logger = log.New(os.Stderr)
 type state int
 
 const (
-	DELETING             state = -3
-	DELETE_ERROR         state = -2
-	DELETE_SUCCESS       state = -1
-	NONE                 state = 0
-	CREATING             state = 1
-	CREATE_ERROR         state = 2
-	CREATE_SUCCESS       state = 3
-	CLEANING             state = 4
-	CLEAN_ERROR          state = 5
-	CLEAN_SUCCESS        state = 6
-	CLONING              state = 7
-	CLONE_ERROR          state = 8
-	CLONE_SUCCESS        state = 9
-	PREPARING            state = 10
-	PREPARE_ERROR        state = 11
-	PREPARE_SUCCESS      state = 12
-	PULLING              state = 13
-	PULL_ERROR           state = 14
-	PULL_SUCCESS         state = 15
-	BUILDING             state = 16
-	BUILD_ERROR          state = 17
-	BUILD_SUCCESS        state = 18
-	PREPACKAGING         state = 19
-	PREPACKAGING_ERROR   state = 20
-	PREPACKAGING_SUCCESS state = 21
-	PACKAGING            state = 22
-	PACKAGE_ERROR        state = 23
-	PACKAGE_SUCCESS      state = 24
-	PUSHING              state = 25
-	PUSH_ERROR           state = 26
-	PUSH_SUCCESS         state = 27
-	TAGGING              state = 28
-	TAG_ERROR            state = 29
-	TAG_SUCCESS          state = 30
+	DELETING           state = -3
+	DELETE_ERROR       state = -2
+	DELETE_SUCCESS     state = -1
+	NONE               state = 0
+	CREATING           state = 1
+	CREATE_ERROR       state = 2
+	CREATE_SUCCESS     state = 3
+	CLEANING           state = 4
+	CLEAN_ERROR        state = 5
+	CLEAN_SUCCESS      state = 6
+	CLONING            state = 7
+	CLONE_ERROR        state = 8
+	CLONE_SUCCESS      state = 9
+	PREPARING          state = 10
+	PREPARE_ERROR      state = 11
+	PREPARE_SUCCESS    state = 12
+	PULLING            state = 13
+	PULL_ERROR         state = 14
+	PULL_SUCCESS       state = 15
+	BUILDING           state = 16
+	BUILD_ERROR        state = 17
+	BUILD_SUCCESS      state = 18
+	PREPACKAGING       state = 19
+	PREPACKAGE_ERROR   state = 20
+	PREPACKAGE_SUCCESS state = 21
+	PACKAGING          state = 22
+	PACKAGE_ERROR      state = 23
+	PACKAGE_SUCCESS    state = 24
+	SCANNING           state = 25
+	SCAN_ERROR         state = 26
+	SCAN_SUCCESS       state = 27
+	PUSHING            state = 28
+	PUSH_ERROR         state = 29
+	PUSH_SUCCESS       state = 30
+	TAGGING            state = 31
+	TAG_ERROR          state = 32
+	TAG_SUCCESS        state = 33
 )
 
 func (s state) String() string {
-	return [34]string{
+	return [TAG_SUCCESS + 1 - DELETING]string{
 		"DELETING", "DELETE_ERROR", "DELETE_SUCCESS",
 		"NONE",
 		"CREATING", "CREATE_ERROR", "CREATE_SUCCESS",
@@ -84,9 +89,10 @@ func (s state) String() string {
 		"BUILDING", "BUILD_ERROR", "BUILD_SUCCESS",
 		"PREPACKAGING", "PREPACKAGE_ERROR", "PREPACKAGE_SUCCESS",
 		"PACKAGING", "PACKAGE_ERROR", "PACKAGE_SUCCESS",
+		"SCANNING", "SCAN_ERROR", "SCAN_SUCCESS",
 		"PUSHING", "PUSH_ERROR", "PUSH_SUCCESS",
 		"TAGGING", "TAG_ERROR", "TAG_SUCCESS",
-	}[s+3]
+	}[s-DELETING]
 }
 
 type task struct {
@@ -118,8 +124,9 @@ type taskTrigger struct {
 
 type taskRequest struct {
 	state   state
-	index   int
+	from    state
 	trigger *taskTrigger
+	index   int
 }
 
 type credential struct {
@@ -160,6 +167,7 @@ type project struct {
 	prepareDep     *project
 	prepackageDep  *project
 	packageDep     *project
+	scanners       []*project
 	commit         string
 }
 
@@ -181,7 +189,6 @@ var clients = &broker{
 	make(chan chan []byte),
 	make(map[chan []byte]bool),
 }
-var defaultRequest = taskRequest{NONE, 0, nil}
 
 func event(event map[string]interface{}) {
 	bytes, _ := json.Marshal(event)
@@ -222,8 +229,8 @@ func registryLogin(r *registry) string {
 	return r.url
 }
 
-func (p *project) buildFrom(state state, trigger taskRequest) {
-	p.queue <- taskRequest{state, 0, trigger.trigger}
+func (p *project) buildFrom(state state, trigger *taskTrigger) {
+	p.queue <- taskRequest{state, state, trigger, 0}
 }
 
 func projectEnvironment(p *project, request taskRequest) string {
@@ -248,6 +255,9 @@ func projectEnvironment(p *project, request taskRequest) string {
 }
 
 func projectRoutine(p *project) {
+	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, p.id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, p.id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/config", projectAbs, p.id), 0777)
 	exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 	logger.Infof("Project %d waiting for tasks", p.id)
 	request := <-p.queue
@@ -255,7 +265,9 @@ func projectRoutine(p *project) {
 		state := request.state
 		logger.Infof("Project %d received task %s", p.id, state.String())
 		command := ""
+		dir := ""
 		args := []string{}
+		env := []string{}
 		switch state {
 		case CLEANING:
 			command = "rm"
@@ -264,27 +276,38 @@ func projectRoutine(p *project) {
 			command = "git"
 			args = []string{"clone", "-v", "--recursive", "-b", p.branch, p.url, fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id)}
 		case PREPARING:
-			command = "podman"
-			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
-			args = []string{"build",
-				"--pull=newer",
-				"--squash",
-				"-f", spec,
-				"-t", fmt.Sprintf("builder-%d", p.id),
+			if p.buildSpec != "" {
+				command = "podman"
+				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec)
+				args = []string{"build",
+					"--pull=newer",
+					"--squash",
+					"-f", spec,
+					"-t", fmt.Sprintf("builder-%d", p.id),
+				}
+				if p.prepareDep != nil {
+					args = append(args, "--from", fmt.Sprintf("package-%d", p.prepareDep.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			} else {
+				command = "echo"
+				args = []string{"skipping prepare"}
 			}
-			if p.prepareDep != nil {
-				args = append(args, "--from", fmt.Sprintf("package-%d", p.prepareDep.id))
-			}
-			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PULLING:
 			command = "git"
 			args = []string{"-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "pull", "--recurse-submodules"}
 		case BUILDING:
-			command = "podman"
-			args = []string{"run", "--network=host", "--rm=true",
-				"--env-file", projectEnvironment(p, request),
-				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
-				"--read-only", fmt.Sprintf("builder-%d", p.id),
+			if p.buildSpec != "" {
+				command = "podman"
+				args = []string{"run", "--network=host", "--rm=true",
+					"--env-file", projectEnvironment(p, request),
+					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"-v", fmt.Sprintf("%s/%d/config:/config", projectAbs, p.id),
+					"--read-only", fmt.Sprintf("builder-%d", p.id),
+				}
+			} else {
+				command = "echo"
+				args = []string{"skipping build"}
 			}
 		case PREPACKAGING:
 			if p.prepackageSpec != "" {
@@ -306,23 +329,53 @@ func projectRoutine(p *project) {
 				args = []string{"skipping prepackage"}
 			}
 		case PACKAGING:
-			command = "podman"
-			spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
-			args = []string{"build",
-				"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
-				"--pull=newer",
-				"--squash",
-				"-f", spec,
-				"-t", fmt.Sprintf("package-%d", p.id),
+			if p.packageSpec != "" {
+				command = "podman"
+				spec := fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.packageSpec)
+				args = []string{"build",
+					"-v", fmt.Sprintf("%s/%d/workspace:/workspace", projectAbs, p.id),
+					"-v", fmt.Sprintf("%s/%d/config:/config", projectAbs, p.id),
+					"--pull=newer",
+					"--squash",
+					"-f", spec,
+					"-t", fmt.Sprintf("package-%d", p.id),
+				}
+				if p.packageDep != nil {
+					args = append(args, "--from", fmt.Sprintf("package-%d", p.packageDep.id))
+				} else if p.prepackageSpec != "" {
+					args = append(args, "--from", fmt.Sprintf("prepackage-%d", p.id))
+				}
+				args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
+			} else {
+				command = "echo"
+				args = []string{"skipping package"}
 			}
-			if p.packageDep != nil {
-				args = append(args, "--from", fmt.Sprintf("package-%d", p.packageDep.id))
-			} else if p.prepackageSpec != "" {
-				args = append(args, "--from", fmt.Sprintf("prepackage-%d", p.id))
+		case SCANNING:
+			if request.index < len(p.scanners) {
+				s := p.scanners[request.index]
+				command = "bash"
+				args = []string{"scan.sh", fmt.Sprintf("package-%d", p.id)}
+				dir = fmt.Sprintf("%s/%d/workspace/source", projectAbs, s.id)
+				env = []string{
+					fmt.Sprintf("RACS_SCAN=%s", fmt.Sprintf("package-%d", p.id)),
+					fmt.Sprintf("RACS_VERSION=%d", p.version),
+					fmt.Sprintf("RACS_SCAN_URL=%s", p.url),
+					fmt.Sprintf("RACS_SCAN_BRANCH=%s", p.branch),
+					fmt.Sprintf("RACS_SCAN_COMMIT=%s", p.commit),
+					fmt.Sprintf("RACS_SCAN_PROJECT=%d", p.id),
+				}
+				for name, cr := range s.credentials {
+					env = append(env, fmt.Sprintf("%s=%s", name, cr.value))
+				}
+			} else {
+				command = "echo"
+				args = []string{"skipping scan"}
 			}
-			args = append(args, fmt.Sprintf("%s/%d/context", projectAbs, p.id))
 		case PUSHING:
-			if request.index < len(p.destinations) {
+			if request.from == SCANNING {
+				command = "echo"
+				args = []string{"skipping push"}
+			} else if request.index < len(p.destinations) {
 				destination := p.destinations[request.index]
 				url := registryLogin(destination.registry)
 				tag := strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
@@ -333,7 +386,10 @@ func projectRoutine(p *project) {
 				args = []string{"skipping push"}
 			}
 		case TAGGING:
-			if p.tagRepo {
+			if request.from == SCANNING {
+				command = "echo"
+				args = []string{"skipping tag"}
+			} else if p.tagRepo {
 				if request.index < len(p.destinations) {
 					destination := p.destinations[request.index]
 					tag := strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
@@ -376,6 +432,8 @@ func projectRoutine(p *project) {
 			os.Mkdir(taskRoot, 0777)
 			logger.Infof("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
+			cmd.Dir = dir
+			cmd.Env = append(cmd.Environ(), env...)
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
 			out.WriteString("\u001B[1m")
 			out.WriteString(cmd.String())
@@ -409,13 +467,13 @@ func projectRoutine(p *project) {
 		logger.Infof("Project %d finished task %s", p.id, state.String())
 		switch p.state {
 		case CREATE_SUCCESS:
-			request = taskRequest{CLEANING, 0, request.trigger}
+			request = taskRequest{CLEANING, request.from, request.trigger, 0}
 		case CLEAN_SUCCESS:
-			request = taskRequest{CLONING, 0, request.trigger}
+			request = taskRequest{CLONING, request.from, request.trigger, 0}
 		case CLONE_SUCCESS:
-			request = taskRequest{PREPARING, 0, request.trigger}
+			request = taskRequest{PREPARING, request.from, request.trigger, 0}
 		case PREPARE_SUCCESS:
-			request = taskRequest{PULLING, 0, request.trigger}
+			request = taskRequest{PULLING, request.from, request.trigger, 0}
 		case PULL_SUCCESS:
 			buildHash := []byte{}
 			f, err := os.Open(fmt.Sprintf("%s/%d/%s", projectAbs, p.id, p.buildSpec))
@@ -430,19 +488,23 @@ func projectRoutine(p *project) {
 			if !bytes.Equal(buildHash, p.buildHash) {
 				p.buildHash = buildHash
 				db.Exec(`UPDATE projects SET buildHash = ? WHERE id = ?`, buildHash, p.id)
-				request = taskRequest{PREPARING, 0, request.trigger}
+				request = taskRequest{PREPARING, request.from, request.trigger, 0}
 			} else {
-				request = taskRequest{BUILDING, 0, request.trigger}
+				if !p.protected || request.trigger == nil {
+					request = taskRequest{BUILDING, request.from, request.trigger, 0}
+				} else {
+					request = <-p.queue
+				}
 			}
 		case BUILD_SUCCESS:
+			request = taskRequest{PREPACKAGING, request.from, request.trigger, 0}
+		case PREPACKAGE_SUCCESS:
+			request = taskRequest{PACKAGING, request.from, request.trigger, 0}
+		case PACKAGE_SUCCESS:
 			out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 			if err == nil {
 				p.commit = strings.TrimSpace(string(out))
 			}
-			request = taskRequest{PREPACKAGING, 0, request.trigger}
-		case PREPACKAGING_SUCCESS:
-			request = taskRequest{PACKAGING, 0, request.trigger}
-		case PACKAGE_SUCCESS:
 			p.version += 1
 			db.Exec(`UPDATE projects SET version = ? WHERE id = ?`, p.version, p.id)
 			event(map[string]interface{}{
@@ -450,14 +512,21 @@ func projectRoutine(p *project) {
 				"id":      p.id,
 				"version": p.version,
 			})
-			_, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "tag", fmt.Sprintf("r%d", p.version)).Output()
+			_, err = exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "tag", fmt.Sprintf("r%d", p.version)).Output()
 			if err != nil {
 				logger.Error(err)
 			}
-			request = taskRequest{PUSHING, 0, request.trigger}
+			request = taskRequest{SCANNING, request.from, request.trigger, 0}
+		case SCAN_SUCCESS:
+			index := request.index + 1
+			if index < len(p.scanners) {
+				request = taskRequest{SCANNING, request.from, request.trigger, index}
+			} else {
+				request = taskRequest{PUSHING, request.from, request.trigger, 0}
+			}
 		case PUSH_SUCCESS:
 			index := request.index
-			if len(p.triggers) > 0 {
+			if request.from != SCANNING && len(p.triggers) > 0 {
 				tag := ""
 				registry := ""
 				if index < len(p.destinations) {
@@ -465,21 +534,16 @@ func projectRoutine(p *project) {
 					tag = strings.Replace(destination.tag, "$VERSION", strconv.Itoa(p.version), -1)
 					registry = destination.registry.name
 				}
-				request2 := taskRequest{state, 0, &taskTrigger{p.url, p.branch, p.commit, tag, registry, p.id, p.version}}
+				taskTrigger := &taskTrigger{p.url, p.branch, p.commit, tag, registry, p.id, p.version}
 				for _, trigger := range p.triggers {
-					trigger.project.buildFrom(trigger.state, request2)
+					trigger.project.buildFrom(trigger.state, taskTrigger)
 				}
 			}
-			index = index + 1
-			if index < len(p.destinations) {
-				request = taskRequest{PUSHING, index, request.trigger}
-			} else {
-				request = taskRequest{TAGGING, 0, request.trigger}
-			}
+			request = taskRequest{TAGGING, request.state, request.trigger, index}
 		case TAG_SUCCESS:
 			index := request.index + 1
-			if index < len(p.destinations) {
-				request = taskRequest{TAGGING, index, request.trigger}
+			if request.from != SCANNING && index < len(p.destinations) {
+				request = taskRequest{PUSHING, request.state, request.trigger, index}
 			} else {
 				request = <-p.queue
 			}
@@ -496,21 +560,25 @@ func projectRoutine(p *project) {
 
 func projectCreate(name, url, branch, labels string) *project {
 	var id int
-	db.QueryRow(`INSERT INTO projects(name, source, branch, labels, buildSpec, prepackageSpec, packageSpec, state, version)
-		VALUES(?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0) RETURNING id`, name, url, branch, labels).Scan(&id)
+	db.QueryRow(`INSERT INTO projects(name, source, branch, labels, buildSpec, prepackageSpec, packageSpec, state, version, protected, tagRepo)
+		VALUES(?, ?, ?, ?, 'BuildSpec', '', 'PackageSpec', 'CLONING', 0, 0, 0) RETURNING id`, name, url, branch, labels).Scan(&id)
 	logger.Infof("Project created %s %s %s %s", id, name, url, branch)
 	os.Mkdir(fmt.Sprintf("%s/%d", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/context", projectAbs, id), 0777)
 	os.Mkdir(fmt.Sprintf("%s/%d/workspace", projectAbs, id), 0777)
+	os.Mkdir(fmt.Sprintf("%s/%d/config", projectAbs, id), 0777)
 	p := &project{
-		id, name, labels, url, branch, "BuildSpec", "", "PackageSpec", []byte{},
+		id, name, labels, url, branch,
+		"workspace/source/BuildSpec",
+		"workspace/source/PrepackageSpec",
+		"workspace/source/PackageSpec", []byte{},
 		CREATE_SUCCESS, 0, false, false,
 		make([]destination, 0),
 		make([]*task, 0),
 		make(chan taskRequest, 10),
 		make([]trigger, 0),
 		make(map[string]*credential),
-		nil, nil, nil, "",
+		nil, nil, nil, make([]*project, 0), "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -767,6 +835,61 @@ func handleProjectList(w http.ResponseWriter, r *http.Request, u *user, params m
 	w.Write(j)
 }
 
+var gv *graphviz.Graphviz
+
+func handleProjectGraph(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	graph, _ := gv.Graph(graphviz.Directed)
+	graph.SetRankDir("LR")
+	graph.SetSplines("polyline")
+	graph.SetConcentrate(true)
+	graph.SetRankSeparator(5)
+	graph.SetOverlap(false)
+	nodes := make(map[int]*cgraph.Node)
+	for _, p := range projects {
+		node, _ := graph.CreateNode(strconv.Itoa(p.id))
+		node.SetLabel(p.name)
+		node.SetShape("box")
+		nodes[p.id] = node
+	}
+	for _, p := range projects {
+		pnode := nodes[p.id]
+		for _, t := range p.triggers {
+			tnode := nodes[t.project.id]
+			edge, _ := graph.CreateEdge("", pnode, tnode)
+			edge.SetXLabel(t.state.String())
+		}
+	}
+
+	format := graphviz.SVG
+	contentType := "image/svg+xml"
+
+	switch params["format"] {
+	case "xdot":
+		format = graphviz.XDOT
+		contentType = "text/plain"
+	case "png":
+		format = graphviz.PNG
+		contentType = "image/png"
+	case "jpg":
+		format = graphviz.JPG
+		contentType = "image/jpeg"
+	default:
+		format = graphviz.SVG
+		contentType = "image/svg+xml"
+	}
+
+	var out bytes.Buffer
+	if err := gv.Render(graph, format, &out); err != nil {
+		logger.Error(err)
+		w.WriteHeader(500)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.Header().Add("Content-Type", contentType)
+		w.WriteHeader(200)
+		w.Write(out.Bytes())
+	}
+}
+
 func handleProjectStatus(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	id, _ := strconv.Atoi(params["id"])
 	p := projects[id]
@@ -913,11 +1036,11 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 	if checkLogin(u, "admin", w, "/project/upload", params) {
 		return
 	}
-	id, _ := strconv.Atoi(params["id"])
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
 	name := filepath.Clean(params["name"])
 	upload := filepath.Clean(params["upload"])
 	validUpload, _ := regexp.MatchString("^uploads/upload-[0-9]+$", upload)
-	p := projects[id]
 	if p == nil {
 		w.WriteHeader(500)
 	} else if name == "." {
@@ -925,7 +1048,7 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 	} else if !validUpload {
 		w.WriteHeader(500)
 	} else {
-		err := os.Rename(upload, fmt.Sprintf("%s/%d/%s", projectAbs, id, name))
+		err := os.Rename(upload, fmt.Sprintf("%s/%d/%s", projectAbs, p.id, name))
 		if err != nil {
 			logger.Error(err)
 		}
@@ -937,6 +1060,48 @@ func handleProjectUpload(w http.ResponseWriter, r *http.Request, u *user, params
 			w.WriteHeader(200)
 			w.Write([]byte("OK"))
 		}
+	}
+}
+
+func handleProjectConfigList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/config", params) {
+		return
+	}
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
+	files := make([]map[string]interface{}, 0)
+	entries, _ := os.ReadDir(fmt.Sprintf("%s/%d/config", projectAbs, p.id))
+	for _, e := range entries {
+		if !e.IsDir() {
+			info, _ := e.Info()
+			files = append(files, map[string]interface{}{
+				"name": e.Name(),
+				"size": info.Size(),
+				"time": info.ModTime().Format(time.RFC3339),
+			})
+		}
+	}
+	w.Header().Add("Content-Type", "application/json")
+	j, _ := json.Marshal(files)
+	w.Write(j)
+}
+
+func handleProjectConfigRead(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/project/config", params) {
+		return
+	}
+	pid, _ := strconv.Atoi(params["id"])
+	p := projects[pid]
+	name := filepath.Clean(params["name"])
+	path := fmt.Sprintf("%s/%d/config/%s", projectAbs, p.id, name)
+	logger.Infof("Reading config %s", path)
+	text, err := ioutil.ReadFile(path)
+	if err != nil {
+		w.WriteHeader(404)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.Header().Add("Content-Type", "text/plain")
+		w.Write(text)
 	}
 }
 
@@ -983,6 +1148,14 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 			trigger.project.prepackageDep = nil
 		case PACKAGING:
 			trigger.project.packageDep = nil
+		case SCANNING:
+			scanners := trigger.project.scanners
+			for n, q := range scanners {
+				if p == q {
+					trigger.project.scanners = append(scanners[:n], scanners[n+1:]...)
+					break
+				}
+			}
 		}
 	}
 	p.triggers = make([]trigger, 0)
@@ -1012,6 +1185,9 @@ func handleProjectTriggers(w http.ResponseWriter, r *http.Request, u *user, para
 		case "package":
 			s = PACKAGING
 			t.packageDep = p
+		case "scan":
+			s = SCANNING
+			t.scanners = append(t.scanners, p)
 		case "push":
 			s = PUSHING
 		case "tag":
@@ -1062,10 +1238,41 @@ func handleProjectEnvironment(w http.ResponseWriter, r *http.Request, u *user, p
 	}
 }
 
+func findProject(ref string, repo map[string]interface{}) *project {
+	logger.Infof("Trying to match project %v, %v", ref, repo)
+	for _, p := range projects {
+		if p.url == repo["clone_url"] || p.url == repo["html_url"] || p.url == repo["ssh_url"] {
+			if fmt.Sprintf("refs/heads/%s", p.branch) == ref {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
 func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
-	id, _ := strconv.Atoi(params["id"])
+	var p *project
+	if params["id"] != "" {
+		id, _ := strconv.Atoi(params["id"])
+		p = projects[id]
+	} else if params["payload"] != "" {
+		var j map[string]interface{}
+		json.Unmarshal([]byte(params["payload"]), &j)
+		repo := j["repository"].(map[string]interface{})
+		ref := j["ref"].(string)
+		p = findProject(ref, repo)
+	} else if params["repository"] != "" {
+		var repo map[string]interface{}
+		json.Unmarshal([]byte(params["repository"]), &repo)
+		ref := params["ref"]
+		p = findProject(ref, repo)
+	}
+	if p == nil {
+		w.WriteHeader(400)
+		w.Write([]byte("Invalid project"))
+		return
+	}
 	stage := params["stage"]
-	p := projects[id]
 	if p.protected && u.Name == "" {
 		w.WriteHeader(403)
 		w.Write([]byte("Unauthorized"))
@@ -1077,27 +1284,31 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 		var j map[string]interface{}
 		json.Unmarshal([]byte(params["payload"]), &j)
 		requestedRef = fmt.Sprint(j["ref"])
+	} else if params["ref"] != "" {
+		requestedRef = params["ref"]
 	}
 	if requestedRef == expectedRef {
 		switch stage {
 		case "clean":
-			p.buildFrom(CLEANING, defaultRequest)
+			p.buildFrom(CLEANING, nil)
 		case "clone":
-			p.buildFrom(CLONING, defaultRequest)
+			p.buildFrom(CLONING, nil)
 		case "prepare":
-			p.buildFrom(PREPARING, defaultRequest)
+			p.buildFrom(PREPARING, nil)
 		case "pull":
-			p.buildFrom(PULLING, defaultRequest)
+			p.buildFrom(PULLING, nil)
 		case "build":
-			p.buildFrom(BUILDING, defaultRequest)
+			p.buildFrom(BUILDING, nil)
 		case "prepackage":
-			p.buildFrom(PREPACKAGING, defaultRequest)
+			p.buildFrom(PREPACKAGING, nil)
 		case "package":
-			p.buildFrom(PACKAGING, defaultRequest)
+			p.buildFrom(PACKAGING, nil)
+		case "scan":
+			p.buildFrom(SCANNING, nil)
 		case "push":
-			p.buildFrom(PUSHING, defaultRequest)
+			p.buildFrom(PUSHING, nil)
 		case "tag":
-			p.buildFrom(TAGGING, defaultRequest)
+			p.buildFrom(TAGGING, nil)
 		}
 	} else {
 		logger.Infof("Build requested by %s expected %s, skipping", requestedRef, expectedRef)
@@ -1113,7 +1324,7 @@ func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params
 	id, _ := strconv.Atoi(params["id"])
 	confirm := params["confirm"]
 	if confirm == "YES" {
-		projects[id].buildFrom(DELETING, defaultRequest)
+		projects[id].buildFrom(DELETING, nil)
 	}
 	redirect := params["redirect"]
 	if len(redirect) > 0 {
@@ -1127,22 +1338,40 @@ func handleProjectDelete(w http.ResponseWriter, r *http.Request, u *user, params
 
 func handleTaskList(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	from, _ := strconv.ParseInt(params["from"], 10, 64)
-	rows, _ := db.Query(`SELECT project, id, type, state, time FROM tasks ORDER BY id DESC LIMIT 100 OFFSET ?`, from)
 	result := make([]interface{}, 0)
-	for rows.Next() {
-		var pid int
-		var id int
-		var kind string
-		var state string
-		var time string
-		rows.Scan(&pid, &id, &kind, &state, &time)
-		result = append(result, map[string]interface{}{
-			"project": pid,
-			"id":      id,
-			"type":    kind,
-			"state":   state,
-			"time":    time,
-		})
+	if params["id"] != "" {
+		pid, _ := strconv.Atoi(params["id"])
+		rows, _ := db.Query(`SELECT id, type, state, time FROM tasks WHERE project = ? ORDER BY id DESC LIMIT 100 OFFSET ?`, pid, from)
+		for rows.Next() {
+			var id int
+			var kind string
+			var state string
+			var time string
+			rows.Scan(&id, &kind, &state, &time)
+			result = append(result, map[string]interface{}{
+				"id":    id,
+				"type":  kind,
+				"state": state,
+				"time":  time,
+			})
+		}
+	} else {
+		rows, _ := db.Query(`SELECT project, id, type, state, time FROM tasks ORDER BY id DESC LIMIT 100 OFFSET ?`, from)
+		for rows.Next() {
+			var pid int
+			var id int
+			var kind string
+			var state string
+			var time string
+			rows.Scan(&pid, &id, &kind, &state, &time)
+			result = append(result, map[string]interface{}{
+				"project": pid,
+				"id":      id,
+				"type":    kind,
+				"state":   state,
+				"time":    time,
+			})
+		}
 	}
 	w.Header().Add("Content-Type", "application/json")
 	j, _ := json.Marshal(result)
@@ -1289,12 +1518,21 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("%s %s %s", r.Method, r.RemoteAddr, path)
 	contentType := r.Header.Get("Content-Type")
 	params := make(map[string]string)
+	for name, value := range r.URL.Query() {
+		params[name] = value[0]
+	}
 	if strings.HasPrefix(contentType, "application/json") {
 		body, _ := ioutil.ReadAll(r.Body)
 		var j map[string]interface{}
 		json.Unmarshal(body, &j)
 		for name, value := range j {
-			params[name] = fmt.Sprint(value)
+			switch v := value.(type) {
+			case string:
+				params[name] = v
+			default:
+				j, _ := json.Marshal(v)
+				params[name] = string(j)
+			}
 		}
 	} else if strings.HasPrefix(contentType, "multipart/form-data") {
 		r.ParseMultipartForm(10000000)
@@ -1357,6 +1595,7 @@ func main() {
 	flag.IntVar(&port, "port", 8080, "Web server port")
 	flag.Parse()
 
+	gv = graphviz.New()
 	key := make([]byte, 32)
 	rand.Read(key)
 	ciph, _ = aes.NewCipher(key)
@@ -1407,6 +1646,7 @@ func main() {
 				}
 			}
 			version += 1
+			db.Exec(`UPDATE config SET value = ? WHERE name = 'version'`, version)
 		}
 	}
 
@@ -1461,13 +1701,13 @@ func main() {
 			make(chan taskRequest, 10),
 			make([]trigger, 0),
 			make(map[string]*credential),
-			nil, nil, nil, "",
+			nil, nil, nil, make([]*project, 0), "",
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {
 			p.commit = strings.TrimSpace(string(out))
 		}
-		fmt.Printf("%+v\n", p)
+		//fmt.Printf("%+v\n", p)
 		projects[p.id] = p
 		go projectRoutine(p)
 	}
@@ -1519,6 +1759,8 @@ func main() {
 				t.prepackageDep = p
 			case PACKAGING:
 				t.packageDep = p
+			case SCANNING:
+				t.scanners = append(t.scanners, p)
 			}
 		}
 	}
@@ -1566,6 +1808,7 @@ func main() {
 	handlers["/user/login"] = handleUserLogin
 	handlers["/user/logout"] = handleUserLogout
 	handlers["/project/list"] = handleProjectList
+	handlers["/project/graph"] = handleProjectGraph
 	handlers["/project/status"] = handleProjectStatus
 	handlers["/project/update"] = handleProjectUpdate
 	handlers["/project/destinations"] = handleProjectDestinations
@@ -1573,6 +1816,8 @@ func main() {
 	handlers["/project/environment"] = handleProjectEnvironment
 	handlers["/project/create"] = handleProjectCreate
 	handlers["/project/upload"] = handleProjectUpload
+	handlers["/project/config/list"] = handleProjectConfigList
+	handlers["/project/config/read"] = handleProjectConfigRead
 	handlers["/project/build"] = handleProjectBuild
 	handlers["/project/delete"] = handleProjectDelete
 	handlers["/task/list"] = handleTaskList

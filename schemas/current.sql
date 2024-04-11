@@ -1,24 +1,25 @@
-CREATE TABLE IF NOT EXISTS config(
+CREATE TABLE config(
 	name STRING PRIMARY KEY,
 	value
 );
 
-CREATE TABLE IF NOT EXISTS users(
+CREATE TABLE users(
 	name STRING PRIMARY KEY,
 	passwd STRING,
 	salt STRING,
 	role STRING
 );
 
-CREATE TABLE IF NOT EXISTS registries(
-	name STRING PRIMARY KEY,
+CREATE TABLE registries(
+	id INTEGER PRIMARY KEY,
+	name STRING,
 	url STRING,
 	user STRING,
 	password STRING,
 	timeout INTEGER
 ); 
 
-CREATE TABLE IF NOT EXISTS projects(
+CREATE TABLE projects(
 	id INTEGER PRIMARY KEY,
 	name STRING,
 	source STRING,
@@ -36,7 +37,13 @@ CREATE TABLE IF NOT EXISTS projects(
 	tagRepo INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS tasks(
+CREATE TABLE destinations(
+	project INTEGER,
+	registry INTEGER,
+	tag STRING
+);
+
+CREATE TABLE tasks(
 	id INTEGER PRIMARY KEY,
 	project INTEGER,
 	type STRING,
@@ -44,28 +51,28 @@ CREATE TABLE IF NOT EXISTS tasks(
 	time STRING
 );
 
-CREATE TABLE IF NOT EXISTS members(
+CREATE TABLE members(
 	project INTEGER,
 	user STRING,
 	role STRING
 );
 
-CREATE TABLE IF NOT EXISTS triggers(
+CREATE TABLE triggers(
 	project INTEGER,
 	target INTEGER,
 	state STRING
 );
 
-CREATE TABLE IF NOT EXISTS credentials(
+CREATE TABLE credentials(
 	id INTEGER PRIMARY KEY,
 	description STRING,
 	value STRING
 );
 
-CREATE TABLE IF NOT EXISTS environments(
+CREATE TABLE environments(
 	project INTEGER,
 	name STRING,
 	credential INTEGER
 );
 
-INSERT INTO config(name, value) VALUES('version', 1);
+INSERT INTO config(name, value) VALUES('version', 3);

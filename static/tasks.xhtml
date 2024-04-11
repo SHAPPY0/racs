@@ -156,6 +156,7 @@
 			<a class="navbar-item is-tab" href="/credentials.xhtml">Credentials</a>
 			<a class="navbar-item is-tab" href="/registries.xhtml">Registries</a>
 			<a class="navbar-item is-tab is-active" href="/tasks.xhtml">Tasks</a>
+			<a class="navbar-item is-tab" href="/graph.xhtml">Graph</a>
 			<a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" id="navbar-burger">
 				<span aria-hidden="true"></span>
 				<span aria-hidden="true"></span>
@@ -164,14 +165,6 @@
 		</div>
 		<div class="navbar-menu" id="navbar-menu">
 			<div class="navbar-end">
-				<div class="navbar-item has-dropdown is-hoverable">
-					<a class="navbar-link" id="filter-label">Filter</a>
-					<div class="navbar-dropdown">
-						<div class="navbar-item">
-							<form id="labels_dropdown"/>
-						</div>
-					</div>
-				</div>
 				<div class="navbar-item" id="out-actions" style="display:none;">
 					<div class="buttons">
 						<button class="button is-small is-primary" onclick="showLogin()">Login</button>
@@ -179,7 +172,6 @@
 				</div>
 				<div class="navbar-item" id="in-actions" style="display:none;">
 					<div class="buttons">
-						<button class="button is-small" onclick="showCreate()">Create Project</button>
 						<button class="button is-small is-danger" onclick="showLogout()">Logout</button>
 					</div>
 				</div>
@@ -205,6 +197,7 @@
 			PREPACKAGING: "prepackage",
 			PACKAGING: "package",
 			PUSHING: "push",
+			SCANNING: "scan",
 			TAGGING: "tag",
 			DELETING: "delete"
 		};
@@ -308,17 +301,20 @@
 			BUILD_ERROR: 17,
 			BUILD_SUCCESS: 18,
 			PREPACKAGING: 19,
-			PREPACKAGING_ERROR: 20,
-			PREPACKAGING_SUCCESS: 21,
+			PREPACKAGE_ERROR: 20,
+			PREPACKAGE_SUCCESS: 21,
 			PACKAGING: 22,
 			PACKAGE_ERROR: 23,
 			PACKAGE_SUCCESS: 24,
-			PUSHING: 25,
-			PUSH_ERROR: 26,
-			PUSH_SUCCESS: 27,
-			TAGGING: 28,
-			TAG_ERROR: 29,
-			TAG_SUCCESS: 30
+			SCANNING: 25,
+			SCAN_ERROR: 26,
+			SCAN_SUCCESS: 27,
+			PUSHING: 28,
+			PUSH_ERROR: 29,
+			PUSH_SUCCESS: 30,
+			TAGGING: 31,
+			TAG_ERROR: 32,
+			TAG_SUCCESS: 33
 		};
 
 		function updateTask(result) {
