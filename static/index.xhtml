@@ -495,8 +495,8 @@
 			<footer class="modal-card-foot">
 				<input type="hidden" id="task_id" />
 				<span class="tag is-medium" id="task_status"/>
-				<button class="button is-warning" onclick="stopTask()">Stop</button>
 				<span style="flex:1 1;"/>
+				<button class="button is-warning is-hidden" onclick="stopTask()" id="stop_btn">Stop</button>
 				<button class="button" onclick="hideTaskLogs()" type="reset">Close</button>
 			</footer>
 		</div>
@@ -942,24 +942,33 @@
 					var state = response.headers.get("X-Task-State");
 					tag.textContent = state;
 					tag.classList = "tag is-medium";
+					let stop_btn = document.getElementById("stop_btn");
 					switch (state) {
 					case "RUNNING":
 						tag.addClass("is-info");
+						stop_btn.classList.remove("is-hidden");
+						stop_btn.addClass("is-block");
 						break;
 					case "SUCCESS":
 						tag.addClass("is-success");
 						clearInterval(taskInterval);
 						taskInterval = null;
+						stop_btn.classList.remove("is-block");
+						stop_btn.addClass("is-hidden");
 						break;
 					case "ERROR":
 						tag.addClass("is-danger");
 						clearInterval(taskInterval);
 						taskInterval = null;
+						stop_btn.classList.remove("is-block");
+						stop_btn.addClass("is-hidden");
 						break;
 					case "STOPPED":
 						tag.addClass("is-warning");
 						clearInterval(taskInterval);
 						taskInterval = null;
+						stop_btn.classList.remove("is-block");
+						stop_btn.addClass("is-hidden");
 						break;
 					}
 					response.text().then(text => {
@@ -983,12 +992,10 @@
 		}
 
 		function stopTask() {
-			let taskId = document.getElementById("task_id").value;
-			fetch(`/task/stop?id=${taskId}`).then(response => {
-				if (response &amp;&amp; response.status == 200) {
-					alert("Task Stopped!!!")
-				}
-			});
+			if (document.getElementById("task_status").innerText === "RUNNING") {
+				let taskId = document.getElementById("task_id").value;
+				fetch(`/task/stop?id=${taskId}`).then(response => {});
+			}
 		}
 
 		var container = document.getElementById("projects");
@@ -1023,6 +1030,7 @@
 			project.state.removeClass("is-info");
 			project.state.removeClass("is-success");
 			project.state.removeClass("is-danger");
+			project.state.removeClass("is-warning");
 			switch (result.state) {
 			case "RUNNING":
 				project.state.addClass("is-info");

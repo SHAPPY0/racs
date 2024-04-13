@@ -100,7 +100,6 @@ type task struct {
 	kind  string
 	state string
 	time  string
-	cmd   *exec.Cmd
 }
 
 type registry struct {
@@ -183,7 +182,7 @@ var db *sql.DB
 var registries = map[int]*registry{}
 var credentials = map[int]*credential{}
 var projects = map[int]*project{}
-var activeTasks = map[int]*task{}
+var activeCommands = map[int]*exec.Cmd{}
 var projectAbs, _ = filepath.Abs("projects")
 var clients = &broker{
 	make(chan []byte),
@@ -434,8 +433,7 @@ func projectRoutine(p *project) {
 			os.Mkdir(taskRoot, 0777)
 			logger.Infof("Task %s %v", command, args)
 			cmd := exec.Command(command, args...)
-			t.cmd = cmd
-			activeTasks[id] = t
+			activeCommands[id] = cmd
 			cmd.Dir = dir
 			cmd.Env = append(cmd.Environ(), env...)
 			out, _ := os.Create(fmt.Sprintf("%s/out.log", taskRoot))
@@ -457,7 +455,7 @@ func projectRoutine(p *project) {
 				p.state += 2
 			}
 			out.Close()
-			delete(activeTasks, t.id)
+			delete(activeCommands, t.id)
 			logger.Infof("Task %d completed", t.id)
 			db.Exec(`UPDATE projects SET state = ? WHERE id = ?`, p.state.String(), p.id)
 			db.Exec(`UPDATE tasks SET state = ? WHERE id = ?`, t.state, t.id)
@@ -1327,13 +1325,16 @@ func handleProjectBuild(w http.ResponseWriter, r *http.Request, u *user, params 
 }
 
 func handleTaskStop(w http.ResponseWriter, r *http.Request, u  *user, params map[string]string) {
+	if checkLogin(u, "admin", w, "/task/stop", params) {
+		return
+	}
 	if  params["id"] == "" {
 		w.WriteHeader(500)
 		w.Write([]byte("Task Id is required"))
 	} else {
 		id, _ := strconv.Atoi(params["id"])
-		if task := activeTasks[id]; task != nil {
-			if err := task.cmd.Process.Kill(); err != nil {
+		if cmd := activeCommands[id]; cmd != nil {
+			if err := cmd.Process.Kill(); err != nil {
 				logger.Warnf("Unable to stop task %d", task.id)
 				w.WriteHeader(501)
 				w.Write([]byte("Unable to stop task command"))
